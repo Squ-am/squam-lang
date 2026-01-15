@@ -95,8 +95,6 @@ pub enum OpCode {
     Jump = 0x40,
     /// Jump if top is false (pops) [offset: i16]
     JumpIfFalse = 0x41,
-    /// Jump if top is true (pops) [offset: i16]
-    JumpIfTrue = 0x42,
     /// Jump if false, don't pop [offset: i16]
     JumpIfFalseNoPop = 0x43,
     /// Jump if true, don't pop [offset: i16]
@@ -271,7 +269,6 @@ impl OpCode {
             | OpCode::StoreGlobal
             | OpCode::Jump
             | OpCode::JumpIfFalse
-            | OpCode::JumpIfTrue
             | OpCode::JumpIfFalseNoPop
             | OpCode::JumpIfTrueNoPop
             | OpCode::Loop
@@ -333,7 +330,6 @@ impl OpCode {
             OpCode::Not => "NOT",
             OpCode::Jump => "JUMP",
             OpCode::JumpIfFalse => "JUMP_IF_FALSE",
-            OpCode::JumpIfTrue => "JUMP_IF_TRUE",
             OpCode::JumpIfFalseNoPop => "JUMP_IF_FALSE_NO_POP",
             OpCode::JumpIfTrueNoPop => "JUMP_IF_TRUE_NO_POP",
             OpCode::Loop => "LOOP",
@@ -420,7 +416,6 @@ impl TryFrom<u8> for OpCode {
             0x38 => Ok(OpCode::Not),
             0x40 => Ok(OpCode::Jump),
             0x41 => Ok(OpCode::JumpIfFalse),
-            0x42 => Ok(OpCode::JumpIfTrue),
             0x43 => Ok(OpCode::JumpIfFalseNoPop),
             0x44 => Ok(OpCode::JumpIfTrueNoPop),
             0x45 => Ok(OpCode::Loop),
@@ -636,7 +631,7 @@ impl Chunk {
                 let idx = self.code[offset + 1];
                 format!("{:04} {} {:16} {}", offset, line_str, op.name(), idx)
             }
-            OpCode::Jump | OpCode::JumpIfFalse | OpCode::JumpIfTrue | OpCode::JumpIfFalseNoPop | OpCode::JumpIfTrueNoPop => {
+            OpCode::Jump | OpCode::JumpIfFalse | OpCode::JumpIfFalseNoPop | OpCode::JumpIfTrueNoPop => {
                 let jump = self.read_u16(offset + 1) as i16;
                 let target = (offset as i32 + 3 + jump as i32) as usize;
                 format!("{:04} {} {:16} {} -> {}", offset, line_str, op.name(), jump, target)

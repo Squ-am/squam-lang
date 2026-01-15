@@ -391,7 +391,7 @@ mod tests {
         let mut profiler = MemoryProfiler::new();
 
         let id1 = profiler.record_alloc(100, "A");
-        let id2 = profiler.record_alloc(200, "B");
+        let _id2 = profiler.record_alloc(200, "B");
         profiler.record_dealloc(id1, 100);
         let _id3 = profiler.record_alloc(50, "C");
 

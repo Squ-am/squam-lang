@@ -777,13 +777,6 @@ impl VM {
                         self.current_frame_mut().ip += offset;
                     }
                 }
-                OpCode::JumpIfTrue => {
-                    let offset = self.read_u16() as usize;
-                    let condition = self.pop()?;
-                    if condition.is_truthy() {
-                        self.current_frame_mut().ip += offset;
-                    }
-                }
                 OpCode::JumpIfFalseNoPop => {
                     let offset = self.read_u16() as usize;
                     let condition = self.peek(0)?;

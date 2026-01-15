@@ -527,7 +527,7 @@ mod tests {
 
     #[derive(Debug)]
     struct Node {
-        value: i64,
+        _value: i64,
         next: Option<Gc<RefCell<Node>>>,
     }
 
@@ -544,15 +544,15 @@ mod tests {
         let heap = GcHeap::new();
 
         let node3 = heap.alloc(RefCell::new(Node {
-            value: 3,
+            _value: 3,
             next: None,
         }));
         let node2 = heap.alloc(RefCell::new(Node {
-            value: 2,
+            _value: 2,
             next: Some(node3),
         }));
         let node1 = heap.alloc(RefCell::new(Node {
-            value: 1,
+            _value: 1,
             next: Some(node2),
         }));
 
