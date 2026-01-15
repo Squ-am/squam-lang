@@ -1,6 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = [
+    "squam",
+    "squam-compiler",
+    "squam-embed",
+    "squam-lexer",
+    "squam-parser",
+    "squam-stdlib",
+    "squam-types",
+    "squam-vm",
+    "squam-wasm",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,14 +24,14 @@ categories = ["compilers", "development-tools"]
 
 [workspace.dependencies]
 # Internal
-squam-lexer = { path = "crates/squam-lexer" }
-squam-parser = { path = "crates/squam-parser" }
-squam-types = { path = "crates/squam-types" }
-squam-compiler = { path = "crates/squam-compiler" }
-squam-vm = { path = "crates/squam-vm" }
-squam-stdlib = { path = "crates/squam-stdlib" }
-squam-embed = { path = "crates/squam-embed" }
-squam-wasm = { path = "crates/squam-wasm" }
+squam-lexer = { path = "squam-lexer" }
+squam-parser = { path = "squam-parser" }
+squam-types = { path = "squam-types" }
+squam-compiler = { path = "squam-compiler" }
+squam-vm = { path = "squam-vm" }
+squam-stdlib = { path = "squam-stdlib", default-features = false }
+squam-embed = { path = "squam-embed" }
+squam-wasm = { path = "squam-wasm" }
 
 # External
 thiserror = "2"

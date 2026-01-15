@@ -23,7 +23,7 @@ squam-parser = { workspace = true }
 squam-types = { workspace = true }
 squam-compiler = { workspace = true }
 squam-vm = { workspace = true }
-squam-stdlib = { workspace = true }
+squam-stdlib = { workspace = true, features = ["http"] }
 clap = { workspace = true }
 ariadne = { workspace = true }
 rustyline = { workspace = true }

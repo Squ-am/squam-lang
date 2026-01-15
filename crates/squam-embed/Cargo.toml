@@ -10,5 +10,5 @@ squam-lexer = { workspace = true }
 squam-parser = { workspace = true }
 squam-compiler = { workspace = true }
 squam-vm = { workspace = true }
-squam-stdlib = { workspace = true }
+squam-stdlib = { workspace = true, features = ["http"] }
 thiserror = { workspace = true }

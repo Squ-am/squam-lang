@@ -8,6 +8,14 @@ license.workspace = true
 squam-vm = { workspace = true }
 thiserror = { workspace = true }
 lazy_static = "1.4"
+serde_json = "1"
+base64 = "0.22"
+rand = "0.8"
+ureq = { version = "2", optional = true }
+
+[features]
+default = []
+http = ["dep:ureq"]
 
 [dev-dependencies]
 squam-parser = { workspace = true }

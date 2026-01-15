@@ -9,8 +9,16 @@ pub mod string;
 pub mod vec;
 pub mod box_type;
 pub mod net;
+#[cfg(feature = "http")]
+pub mod http;
+pub mod json;
+pub mod time;
+pub mod random;
+pub mod crypto;
+pub mod fs;
 
-use squam_vm::VM;
+use squam_vm::{Value, VM};
+use std::rc::Rc;
 
 /// Register all standard library functions with the VM.
 pub fn register_stdlib(vm: &mut VM) {
@@ -25,6 +33,77 @@ pub fn register_stdlib(vm: &mut VM) {
     hashset::register(vm);
     box_type::register(vm);
     net::register(vm);
+    #[cfg(feature = "http")]
+    http::register(vm);
+    json::register(vm);
+    time::register(vm);
+    random::register(vm);
+    crypto::register(vm);
+    fs::register(vm);
+
+    // Core utility functions
+    register_core(vm);
+}
+
+/// Register core utility functions
+fn register_core(vm: &mut VM) {
+    // typeof(value) -> string
+    vm.define_native("typeof", 1, |args| {
+        let type_name = match &args[0] {
+            Value::Unit => "unit",
+            Value::Bool(_) => "bool",
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Tuple(_) => "tuple",
+            Value::Struct(s) => return Ok(Value::String(Rc::new(format!("struct:{}", s.name)))),
+            Value::Enum(e) => return Ok(Value::String(Rc::new(format!("enum:{}::{}", e.enum_name, e.variant)))),
+            Value::Closure(_) => "function",
+            Value::Native(_) => "function",
+            Value::VMNative(_) => "function",
+            Value::Range(..) => "range",
+            Value::Iterator(_) => "iterator",
+            Value::LocalRef(..) => "ref",
+            Value::Box(_) => "box",
+        };
+        Ok(Value::String(Rc::new(type_name.to_string())))
+    });
+
+    // is_int(value) -> bool
+    vm.define_native("is_int", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::Int(_))))
+    });
+
+    // is_float(value) -> bool
+    vm.define_native("is_float", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::Float(_))))
+    });
+
+    // is_string(value) -> bool
+    vm.define_native("is_string", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::String(_))))
+    });
+
+    // is_bool(value) -> bool
+    vm.define_native("is_bool", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::Bool(_))))
+    });
+
+    // is_array(value) -> bool
+    vm.define_native("is_array", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::Array(_))))
+    });
+
+    // is_function(value) -> bool
+    vm.define_native("is_function", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::Closure(_) | Value::Native(_) | Value::VMNative(_))))
+    });
+
+    // is_unit(value) -> bool
+    vm.define_native("is_unit", 1, |args| {
+        Ok(Value::Bool(matches!(&args[0], Value::Unit)))
+    });
 }
 
 #[cfg(test)]
