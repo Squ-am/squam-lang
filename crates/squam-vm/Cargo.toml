@@ -1,0 +1,12 @@
+[package]
+name = "squam-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+squam-compiler = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+squam-parser = { workspace = true }

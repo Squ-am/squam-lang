@@ -1,0 +1,62 @@
+// Test module support
+
+mod math {
+    fn add(a: i64, b: i64) -> i64 {
+        a + b
+    }
+
+    fn mul(a: i64, b: i64) -> i64 {
+        a * b
+    }
+
+    mod advanced {
+        fn square(x: i64) -> i64 {
+            x * x
+        }
+    }
+}
+
+mod utils {
+    fn double(x: i64) -> i64 {
+        x * 2
+    }
+}
+
+// Import specific items
+use math::{add, mul as multiply};
+use utils::double;
+use math::advanced::square;
+
+fn main() {
+    println("=== Modules ===");
+
+    // Call via fully qualified path
+    let sum = math::add(10, 20);
+    println(sum);
+
+    // Call via imported name
+    let sum2 = add(5, 7);
+    println(sum2);
+
+    // Another module function via full path
+    let product = math::mul(3, 4);
+    println(product);
+
+    // Call via alias
+    let product2 = multiply(5, 5);
+    println(product2);
+
+    // Imported from utils
+    let doubled = double(21);
+    println(doubled);
+
+    // Nested module
+    let sq = math::advanced::square(7);
+    println(sq);
+
+    // Nested module via import
+    let sq2 = square(8);
+    println(sq2);
+
+    println("=== Complete ===");
+}

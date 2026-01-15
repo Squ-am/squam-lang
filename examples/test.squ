@@ -1,0 +1,163 @@
+// Comprehensive test of implemented features
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Option {
+    None,
+    Some(i64),
+}
+
+impl Point {
+    fn new(x: i64, y: i64) -> Point {
+        Point { x, y }
+    }
+
+    fn sum(&self) -> i64 {
+        self.x + self.y
+    }
+
+    fn scale(&self, factor: i64) -> Point {
+        Point { x: self.x * factor, y: self.y * factor }
+    }
+}
+
+fn main() {
+    println("=== Range Iteration ===");
+
+    // Exclusive range
+    println("0..5:");
+    for i in 0..5 {
+        println(i);
+    }
+
+    // Inclusive range
+    println("0..=3:");
+    for i in 0..=3 {
+        println(i);
+    }
+
+    println("=== Structs ===");
+
+    // Struct creation
+    let p = Point { x: 10, y: 20 };
+    println(p.x);
+    println(p.y);
+
+    // Shorthand field syntax
+    let x = 100;
+    let y = 200;
+    let p2 = Point { x, y };
+    println(p2.x);
+
+    // Field assignment
+    p.x = 999;
+    println(p.x);
+
+    println("=== Enums ===");
+
+    // Unit variants
+    let c = Color::Red;
+    println(c);
+
+    // Tuple variants
+    let opt = Option::Some(42);
+    println(opt);
+
+    let none = Option::None;
+    println(none);
+
+    println("=== Methods ===");
+
+    // Method call
+    let p3 = Point { x: 3, y: 4 };
+    println(p3.sum());
+
+    // Method that returns struct
+    let p4 = p3.scale(2);
+    println(p4.x);
+    println(p4.y);
+
+    println("=== Match ===");
+
+    // Match on enum - unit variant
+    let c2 = Color::Green;
+    match c2 {
+        Color::Red => println("red"),
+        Color::Green => println("green"),
+        Color::Blue => println("blue"),
+    }
+
+    // Match on literal
+    let n = 42;
+    match n {
+        0 => println("zero"),
+        42 => println("forty-two"),
+        _ => println("other"),
+    }
+
+    // Wildcard pattern
+    let num = 100;
+    match num {
+        _ => println("matched wildcard"),
+    }
+
+    println("=== Try Operator ===");
+
+    // Test ? with Some
+    let result = test_try_some();
+    println(result);
+
+    // Test ? with None
+    let result2 = test_try_none();
+    println(result2);
+
+    println("=== Closures ===");
+
+    // Simple closure
+    let add = |a, b| a + b;
+    println(add(3, 4));
+
+    // Closure capturing a variable
+    let factor = 10;
+    let multiply = |x| x * factor;
+    println(multiply(5));
+
+    // Closure that reads captured variable twice
+    let value = 100;
+    let get_double = || value + value;
+    println(get_double());
+
+    println("=== Destructuring ===");
+
+    // First let's see if tuples work
+    let pair = (10, 20);
+    println(pair);  // Should print (10, 20)
+
+    // Now try destructuring
+    let (a, b) = (30, 40);
+    println(a);
+    println(b);
+
+    println("=== Complete ===");
+}
+
+fn test_try_some() -> Option {
+    let val = Option::Some(42);
+    let unwrapped = val?;
+    Option::Some(unwrapped + 1)
+}
+
+fn test_try_none() -> Option {
+    let val = Option::None;
+    let unwrapped = val?;  // Should return None here
+    Option::Some(unwrapped + 1)  // This shouldn't run
+}

@@ -1,0 +1,54 @@
+// Test trait support
+
+trait Printable {
+    fn description(&self) -> i64;
+}
+
+trait Greetable {
+    fn greet(&self) -> i64;
+}
+
+struct Dog {
+    age: i64,
+}
+
+struct Cat {
+    lives: i64,
+}
+
+impl Printable for Dog {
+    fn description(&self) -> i64 {
+        self.age
+    }
+}
+
+impl Printable for Cat {
+    fn description(&self) -> i64 {
+        self.lives
+    }
+}
+
+impl Greetable for Dog {
+    fn greet(&self) -> i64 {
+        100
+    }
+}
+
+fn main() {
+    println("=== Traits ===");
+
+    let dog = Dog { age: 5 };
+    let cat = Cat { lives: 9 };
+
+    // Call trait methods
+    let desc1 = dog.description();
+    println(desc1);
+
+    let desc2 = cat.description();
+    println(desc2);
+
+    let greeting = dog.greet();
+    println(greeting);
+
+    println("=== Complete ===");
+}

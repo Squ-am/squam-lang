@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Squam Contributors"]
+description = "A statically-typed scripting language with full type inference"
+homepage = "https://squ.am/"
+keywords = ["language", "scripting", "interpreter", "compiler"]
+categories = ["compilers", "development-tools"]
+
+[workspace.dependencies]
+# Internal
+squam-lexer = { path = "crates/squam-lexer" }
+squam-parser = { path = "crates/squam-parser" }
+squam-types = { path = "crates/squam-types" }
+squam-compiler = { path = "crates/squam-compiler" }
+squam-vm = { path = "crates/squam-vm" }
+squam-stdlib = { path = "crates/squam-stdlib" }
+squam-embed = { path = "crates/squam-embed" }
+squam-wasm = { path = "crates/squam-wasm" }
+
+# External
+thiserror = "2"
+logos = "0.14"
+rustc-hash = "2"
+clap = { version = "4", features = ["derive"] }
+ariadne = "0.4"
+rustyline = "14"
+dirs = "5"

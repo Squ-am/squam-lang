@@ -1,0 +1,15 @@
+pub mod borrow;
+pub mod gc;
+pub mod inline_cache;
+pub mod memory;
+pub mod value;
+pub mod vm;
+
+pub use borrow::{BorrowError, BorrowState, BorrowStats, BorrowTracker, ValueId};
+pub use gc::{Gc, GcConfig, GcHeap, GcRefCell, GcStats, Trace, Tracer};
+pub use inline_cache::{
+    CacheState, CacheStats, CallSiteId, GlobalCacheStats, InlineCache, InlineCacheManager, TypeId,
+};
+pub use memory::{MemoryManager, MemoryMode, MemoryProfiler, MemoryStats};
+pub use value::{Closure, NativeFunction, SquamIterator, Upvalue, Value, VMNativeFnId};
+pub use vm::{RuntimeError, VMNativeFn, VM};

@@ -1,0 +1,11 @@
+[package]
+name = "squam-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+squam-lexer = { workspace = true }
+squam-parser = { workspace = true }
+rustc-hash = { workspace = true }
+thiserror = { workspace = true }

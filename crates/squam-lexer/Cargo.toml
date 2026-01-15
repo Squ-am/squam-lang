@@ -1,0 +1,11 @@
+[package]
+name = "squam-lexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+logos = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]

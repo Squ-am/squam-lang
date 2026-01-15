@@ -1,0 +1,16 @@
+// Hello World in Squam
+
+fn main() {
+    println("Hello, World!");
+
+    // Basic arithmetic
+    let x = 5;
+    let y = 3;
+    let result = x + y;
+    println(result);
+
+    // Array sum
+    let nums = [1, 2, 3, 4, 5];
+    let total = sum(nums);
+    println(total);
+}
