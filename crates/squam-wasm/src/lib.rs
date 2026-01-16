@@ -452,6 +452,7 @@ fn register_stdlib_wasm(vm: &mut VM) {
             Value::Iterator(_) => "iterator",
             Value::LocalRef(..) => "ref",
             Value::Box(_) => "box",
+            Value::Future(_) => "future",
         };
         Ok(Value::String(Rc::new(type_name.to_string())))
     });

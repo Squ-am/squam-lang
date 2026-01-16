@@ -43,6 +43,30 @@ pub enum Value {
     Box(Rc<RefCell<Value>>),
     /// Native function requiring VM access (for calling closures)
     VMNative(VMNativeFnId),
+    /// Future - represents an async computation
+    Future(Rc<RefCell<FutureState>>),
+}
+
+/// State of an async Future.
+#[derive(Clone)]
+pub enum FutureState {
+    /// Future hasn't been polled yet - will execute closure when awaited
+    Pending {
+        /// The closure to execute when awaited
+        closure: Rc<Closure>,
+    },
+    /// Timer future - will complete after deadline
+    Timer {
+        /// When this future should complete (milliseconds since UNIX epoch)
+        deadline_ms: u128,
+    },
+    /// JoinHandle - awaits completion of a spawned task
+    JoinHandle {
+        /// The task ID being awaited
+        task_id: u64,
+    },
+    /// Future has completed with a value
+    Ready(Value),
 }
 
 /// A closure captures its environment.
@@ -274,6 +298,7 @@ impl Value {
             }
             Value::Box(_) => "Box",
             Value::VMNative(_) => "native function",
+            Value::Future(_) => "Future",
         }
     }
 }
@@ -332,6 +357,19 @@ impl fmt::Debug for Value {
                 write!(f, "Box({:?})", inner.borrow())
             }
             Value::VMNative(id) => write!(f, "<vm-native {}>", id),
+            Value::Future(state) => {
+                let state = state.borrow();
+                match &*state {
+                    FutureState::Pending { .. } => write!(f, "<Future pending>"),
+                    FutureState::Timer { deadline_ms } => {
+                        write!(f, "<Future timer: {}ms>", deadline_ms)
+                    }
+                    FutureState::JoinHandle { task_id } => {
+                        write!(f, "<Future join: task {}>", task_id)
+                    }
+                    FutureState::Ready(value) => write!(f, "<Future ready: {:?}>", value),
+                }
+            }
         }
     }
 }
@@ -390,6 +428,19 @@ impl fmt::Display for Value {
                 write!(f, "Box({})", inner.borrow())
             }
             Value::VMNative(id) => write!(f, "<vm-native {}>", id),
+            Value::Future(state) => {
+                let state = state.borrow();
+                match &*state {
+                    FutureState::Pending { .. } => write!(f, "<Future pending>"),
+                    FutureState::Timer { deadline_ms } => {
+                        write!(f, "<Future timer: {}ms>", deadline_ms)
+                    }
+                    FutureState::JoinHandle { task_id } => {
+                        write!(f, "<Future join: task {}>", task_id)
+                    }
+                    FutureState::Ready(value) => write!(f, "<Future ready: {}>", value),
+                }
+            }
         }
     }
 }
@@ -468,6 +519,23 @@ impl Trace for Value {
             }
             Value::VMNative(_) => {
                 // VM natives are just IDs, no GC pointers
+            }
+            Value::Future(state) => {
+                let state = state.borrow();
+                match &*state {
+                    FutureState::Pending { closure } => {
+                        closure.trace(tracer);
+                    }
+                    FutureState::Timer { .. } => {
+                        // Timer just holds a deadline, no GC pointers
+                    }
+                    FutureState::JoinHandle { .. } => {
+                        // JoinHandle just holds a task ID, no GC pointers
+                    }
+                    FutureState::Ready(value) => {
+                        value.trace(tracer);
+                    }
+                }
             }
         }
     }

@@ -456,6 +456,7 @@ impl TypeContext {
                     self.display(*return_type)
                 )
             }
+            Ty::Future { output } => format!("Future<{}>", self.display(*output)),
             Ty::Generic(var) => format!("T{}", var.0),
             Ty::Applied { base, args } => {
                 let args_str: Vec<_> = args.iter().map(|&a| self.display(a)).collect();

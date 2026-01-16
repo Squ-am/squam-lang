@@ -107,6 +107,10 @@ pub enum Ty {
         captures: Vec<(Symbol, TypeId)>,
     },
 
+    // Async Types
+    /// Future type: `Future<T>`
+    Future { output: TypeId },
+
     // Generics & Inference
     /// A generic type parameter: `T`
     Generic(GenericVar),

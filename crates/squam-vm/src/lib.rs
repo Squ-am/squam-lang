@@ -1,4 +1,5 @@
 pub mod borrow;
+pub mod executor;
 pub mod gc;
 pub mod inline_cache;
 pub mod memory;
@@ -11,5 +12,6 @@ pub use inline_cache::{
     CacheState, CacheStats, CallSiteId, GlobalCacheStats, InlineCache, InlineCacheManager, TypeId,
 };
 pub use memory::{MemoryManager, MemoryMode, MemoryProfiler, MemoryStats};
-pub use value::{Closure, NativeFunction, SquamIterator, Upvalue, VMNativeFnId, Value};
+pub use executor::{Executor, Poll, Task, TaskId};
+pub use value::{Closure, FutureState, NativeFunction, SquamIterator, Upvalue, VMNativeFnId, Value};
 pub use vm::{RuntimeError, VMNativeFn, VM};

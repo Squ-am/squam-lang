@@ -193,7 +193,15 @@ impl<'src> Parser<'src> {
         let visibility = self.parse_visibility();
 
         match self.current.kind {
-            TokenKind::Fn => self.parse_function(visibility).map(Item::Function),
+            TokenKind::Async => {
+                self.advance();
+                self.expect(TokenKind::Fn)?;
+                self.parse_function_inner(visibility, true).map(Item::Function)
+            }
+            TokenKind::Fn => {
+                self.advance();
+                self.parse_function_inner(visibility, false).map(Item::Function)
+            }
             TokenKind::Struct => self.parse_struct(visibility, attributes).map(Item::Struct),
             TokenKind::Enum => self.parse_enum(visibility, attributes).map(Item::Enum),
             TokenKind::Impl => self.parse_impl().map(Item::Impl),
@@ -342,10 +350,13 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// Parse a function definition.
-    fn parse_function(&mut self, visibility: Visibility) -> Result<FunctionDef, ParseError> {
+    /// Parse a function definition (after `fn` keyword has been consumed).
+    fn parse_function_inner(
+        &mut self,
+        visibility: Visibility,
+        is_async: bool,
+    ) -> Result<FunctionDef, ParseError> {
         let start = self.current.span;
-        self.expect(TokenKind::Fn)?;
 
         let name = self.parse_identifier()?;
         let generics = self.parse_optional_generics()?;
@@ -364,6 +375,7 @@ impl<'src> Parser<'src> {
         let span = start.merge(body.span);
 
         Ok(FunctionDef {
+            is_async,
             visibility,
             name,
             generics,
@@ -712,7 +724,15 @@ impl<'src> Parser<'src> {
             let visibility = self.parse_visibility();
 
             let item = match self.current.kind {
-                TokenKind::Fn => ImplItem::Function(self.parse_function(visibility)?),
+                TokenKind::Async => {
+                    self.advance();
+                    self.expect(TokenKind::Fn)?;
+                    ImplItem::Function(self.parse_function_inner(visibility, true)?)
+                }
+                TokenKind::Fn => {
+                    self.advance();
+                    ImplItem::Function(self.parse_function_inner(visibility, false)?)
+                }
                 TokenKind::Const => ImplItem::Const(self.parse_const(visibility)?),
                 TokenKind::Type => ImplItem::Type(self.parse_type_alias(visibility)?),
                 _ => {
@@ -765,7 +785,15 @@ impl<'src> Parser<'src> {
 
         while !self.check(TokenKind::RBrace) && !self.check(TokenKind::Eof) {
             let item = match self.current.kind {
-                TokenKind::Fn => TraitItem::Function(self.parse_trait_function()?),
+                TokenKind::Async => {
+                    self.advance();
+                    self.expect(TokenKind::Fn)?;
+                    TraitItem::Function(self.parse_trait_function_inner(true)?)
+                }
+                TokenKind::Fn => {
+                    self.advance();
+                    TraitItem::Function(self.parse_trait_function_inner(false)?)
+                }
                 TokenKind::Const => TraitItem::Const(self.parse_trait_const()?),
                 TokenKind::Type => TraitItem::Type(self.parse_trait_type()?),
                 _ => {
@@ -780,10 +808,9 @@ impl<'src> Parser<'src> {
         Ok(items)
     }
 
-    /// Parse a trait function.
-    fn parse_trait_function(&mut self) -> Result<TraitFunction, ParseError> {
+    /// Parse a trait function (after `fn` keyword has been consumed).
+    fn parse_trait_function_inner(&mut self, is_async: bool) -> Result<TraitFunction, ParseError> {
         let start = self.current.span;
-        self.expect(TokenKind::Fn)?;
 
         let name = self.parse_identifier()?;
         let generics = self.parse_optional_generics()?;
@@ -807,6 +834,7 @@ impl<'src> Parser<'src> {
 
         let span = start.merge(self.current.span);
         Ok(TraitFunction {
+            is_async,
             name,
             generics,
             params,
@@ -1809,6 +1837,17 @@ impl<'src> Parser<'src> {
                 }
             }
 
+            // Async block: async { ... }
+            TokenKind::Async => {
+                self.advance();
+                let block = self.parse_block()?;
+                let span = start.merge(block.span);
+                Ok(Expr {
+                    kind: ExprKind::AsyncBlock(block),
+                    span,
+                })
+            }
+
             // Path or struct literal
             TokenKind::Identifier
             | TokenKind::SelfLower
@@ -1963,7 +2002,7 @@ impl<'src> Parser<'src> {
                 })
             }
 
-            // Field access or method call
+            // Field access, method call, or await
             TokenKind::Dot => {
                 self.advance();
 
@@ -1977,6 +2016,18 @@ impl<'src> Parser<'src> {
                         kind: ExprKind::Field {
                             base: Box::new(left),
                             field,
+                        },
+                        span,
+                    });
+                }
+
+                // Check for await: expr.await
+                if self.check(TokenKind::Await) {
+                    let await_token = self.advance();
+                    let span = start.merge(await_token.span);
+                    return Ok(Expr {
+                        kind: ExprKind::Await {
+                            operand: Box::new(left),
                         },
                         span,
                     });

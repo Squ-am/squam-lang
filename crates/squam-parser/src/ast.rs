@@ -101,6 +101,7 @@ impl Identifier {
 /// A function definition.
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
+    pub is_async: bool,
     pub visibility: Visibility,
     pub name: Identifier,
     pub generics: Option<Generics>,
@@ -227,6 +228,7 @@ pub enum TraitItem {
 /// A function signature in a trait.
 #[derive(Debug, Clone)]
 pub struct TraitFunction {
+    pub is_async: bool,
     pub name: Identifier,
     pub generics: Option<Generics>,
     pub params: Vec<Parameter>,
@@ -558,6 +560,12 @@ pub enum ExprKind {
     Grouped(Box<Expr>),
     /// Format string: `f"Hello {name}!"`
     FormatString { parts: Vec<FormatPart> },
+
+    // Async
+    /// Await expression: `expr.await`
+    Await { operand: Box<Expr> },
+    /// Async block: `async { ... }`
+    AsyncBlock(Block),
 }
 
 /// A part of a format string.

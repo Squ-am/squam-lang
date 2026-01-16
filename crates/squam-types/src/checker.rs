@@ -144,6 +144,8 @@ pub struct TypeChecker {
     errors: Vec<TypeError>,
     /// Current function return type (for checking returns)
     current_return_type: Option<TypeId>,
+    /// Whether we're inside an async function or async block
+    in_async_context: bool,
     /// Type annotations for expressions (for compiler optimization)
     annotations: TypeAnnotations,
     /// Pending generic instantiations with inferred type args (finalized at end of checking)
@@ -175,6 +177,7 @@ impl TypeChecker {
             substitutions: FxHashMap::default(),
             errors: Vec::new(),
             current_return_type: None,
+            in_async_context: false,
             annotations: TypeAnnotations::new(),
             pending_instantiations: Vec::new(),
         };
@@ -454,6 +457,24 @@ impl TypeChecker {
         );
         self.register_extern_function("timer_start", vec![], TypeId::I64);
         self.register_extern_function("timer_elapsed_ms", vec![TypeId::I64], TypeId::I64);
+
+        // Async I/O primitives
+        let future_unit = self.ctx.intern(Ty::Future {
+            output: TypeId::UNIT,
+        });
+        self.register_extern_function("async_sleep", vec![TypeId::I64], future_unit);
+        self.register_extern_function("async_sleep_secs", vec![TypeId::F64], future_unit);
+
+        // block_on: runs a Future<T> to completion and returns T
+        // This is registered as a generic VM-native but we type it as Any -> Any for now
+        self.register_extern_function("block_on", vec![TypeId::ANY], TypeId::ANY);
+
+        // spawn: spawns a Future<T> as a background task, returns Future<T> (JoinHandle)
+        // The returned Future can be awaited to get the spawned task's result
+        let future_any = self.ctx.intern(Ty::Future {
+            output: TypeId::ANY,
+        });
+        self.register_extern_function("spawn", vec![TypeId::ANY], future_any);
 
         // Built-in generic enums (Option, Result)
         self.register_builtin_enums();
@@ -1083,11 +1104,20 @@ impl TypeChecker {
                     .iter()
                     .map(|p| self.resolve_ast_type(&p.ty))
                     .collect();
-                let return_type = func
+                let inner_return_type = func
                     .return_type
                     .as_ref()
                     .map(|t| self.resolve_ast_type(t))
                     .unwrap_or(self.ctx.unit());
+
+                // For async functions, the return type is Future<T>
+                let return_type = if func.is_async {
+                    self.ctx.intern(Ty::Future {
+                        output: inner_return_type,
+                    })
+                } else {
+                    inner_return_type
+                };
 
                 self.types.pop_scope();
 
@@ -1720,6 +1750,7 @@ impl TypeChecker {
         }
 
         // Set return type for checking returns
+        // For async functions, the declared return type is the Future output
         let return_type = func
             .return_type
             .as_ref()
@@ -1727,12 +1758,20 @@ impl TypeChecker {
             .unwrap_or(self.ctx.unit());
         self.current_return_type = Some(return_type);
 
+        // Set async context for async functions
+        let prev_async = self.in_async_context;
+        if func.is_async {
+            self.in_async_context = true;
+        }
+
         // Check body
         let body_ty = self.check_block(&func.body);
 
         // Unify body type with return type
         self.unify(body_ty, return_type, func.body.span);
 
+        // Restore state
+        self.in_async_context = prev_async;
         self.current_return_type = None;
         self.types.pop_scope();
         self.symbols.pop_scope();
@@ -2458,6 +2497,49 @@ impl TypeChecker {
                 }
                 // Format strings always produce String
                 self.ctx.string()
+            }
+
+            ExprKind::Await { operand } => {
+                // Check that we're in an async context
+                if !self.in_async_context {
+                    self.error(TypeError::Custom(
+                        "await can only be used inside async functions or async blocks".to_string(),
+                        expr.span,
+                    ));
+                }
+
+                let operand_ty = self.check_expr(operand);
+                let resolved = self.resolve(operand_ty);
+
+                // Extract output type from Future<T>
+                match self.ctx.get(resolved).clone() {
+                    Ty::Future { output } => output,
+                    _ => {
+                        self.error(TypeError::Custom(
+                            format!(
+                                "await requires a Future type, found {}",
+                                self.ctx.display(operand_ty)
+                            ),
+                            operand.span,
+                        ));
+                        self.ctx.error()
+                    }
+                }
+            }
+
+            ExprKind::AsyncBlock(block) => {
+                // Save current async context
+                let prev_async = self.in_async_context;
+                self.in_async_context = true;
+
+                // Type check the block
+                let block_ty = self.check_block(block);
+
+                // Restore async context
+                self.in_async_context = prev_async;
+
+                // The result is Future<T> where T is the block's type
+                self.ctx.intern(Ty::Future { output: block_ty })
             }
         };
         // Record the expression type for compiler optimization

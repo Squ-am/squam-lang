@@ -4,11 +4,12 @@ use std::rc::Rc;
 
 use squam_compiler::{Chunk, Constant, FunctionProto, OpCode};
 
+use crate::executor::{Executor, TaskId};
 use crate::gc::{GcConfig, GcHeap, GcStats, Trace};
 use crate::inline_cache::{CallSiteId, InlineCacheManager, TypeId};
 use crate::value::{
-    ArrayIterator, Closure, EnumInstance, NativeFunction, RangeIterator, SquamIterator,
-    StructInstance, Upvalue, VMNativeFnId, Value,
+    ArrayIterator, Closure, EnumInstance, FutureState, NativeFunction, RangeIterator,
+    SquamIterator, StructInstance, Upvalue, VMNativeFnId, Value,
 };
 
 /// VM execution errors.
@@ -96,6 +97,8 @@ pub struct VM {
     inline_cache: InlineCacheManager,
     /// Instruction counter for periodic GC checks
     instruction_count: usize,
+    /// Async task executor
+    executor: Executor,
 }
 
 impl VM {
@@ -122,6 +125,7 @@ impl VM {
             vm_natives: Vec::new(),
             inline_cache: InlineCacheManager::new(),
             instruction_count: 0,
+            executor: Executor::new(),
         };
         vm.register_natives();
         vm
@@ -170,6 +174,239 @@ impl VM {
     /// Get inline cache hit ratio.
     pub fn inline_cache_hit_ratio(&self) -> f64 {
         self.inline_cache.hit_ratio()
+    }
+
+    /// Get mutable access to the executor.
+    pub fn executor(&mut self) -> &mut Executor {
+        &mut self.executor
+    }
+
+    /// Spawn a new async task.
+    pub fn spawn(&mut self, future: Value) -> TaskId {
+        self.executor.spawn(future)
+    }
+
+    /// Run the event loop until a specific task completes.
+    pub fn block_on_task(&mut self, task_id: TaskId) -> Result<Value, RuntimeError> {
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        loop {
+            // Process any expired timers
+            self.executor.process_timers();
+
+            // Run ready tasks
+            while let Some(ready_id) = self.executor.pop_ready_task() {
+                self.run_task(ready_id)?;
+
+                // Check if our target task is complete
+                if ready_id == task_id {
+                    if let Some(result) = self.executor.get_task_result(task_id) {
+                        self.executor.remove_task(task_id);
+                        return Ok(result);
+                    }
+                }
+            }
+
+            // Check if target task is complete
+            if self.executor.is_task_complete(task_id) {
+                if let Some(result) = self.executor.get_task_result(task_id) {
+                    self.executor.remove_task(task_id);
+                    return Ok(result);
+                }
+            }
+
+            // If no tasks left, we have a problem
+            if !self.executor.has_tasks() {
+                return Err(RuntimeError::Custom(
+                    "No tasks remaining but target task not complete".to_string(),
+                ));
+            }
+
+            // Sleep until next timer or a short poll interval
+            if let Some(deadline) = self.executor.next_deadline() {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                if deadline > now {
+                    let sleep_ms = (deadline - now).min(10) as u64;
+                    std::thread::sleep(Duration::from_millis(sleep_ms));
+                }
+            } else {
+                // No timers, short sleep
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    /// Run a single task until it yields or completes.
+    fn run_task(&mut self, task_id: TaskId) -> Result<(), RuntimeError> {
+        self.executor.set_current_task(Some(task_id));
+
+        // Save the current VM state (so we don't clobber main()'s state)
+        let saved_stack = std::mem::take(&mut self.stack);
+        let saved_frames = std::mem::take(&mut self.frames);
+
+        // Extract task data without holding mutable borrow
+        let (task_stack, task_frames, waiting_info) = {
+            let task = match self.executor.get_task_mut(task_id) {
+                Some(t) => t,
+                None => {
+                    self.stack = saved_stack;
+                    self.frames = saved_frames;
+                    self.executor.set_current_task(None);
+                    return Ok(());
+                }
+            };
+
+            // Extract waiting_on info
+            let waiting_info = if let Some(future_state) = &task.waiting_on {
+                let state = future_state.borrow();
+                match &*state {
+                    FutureState::Ready(value) => Some((Some(value.clone()), None)),
+                    FutureState::JoinHandle { task_id: target_id } => {
+                        Some((None, Some(*target_id)))
+                    }
+                    FutureState::Timer { .. } => Some((Some(Value::Unit), None)),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            (task.stack.clone(), task.frames.clone(), waiting_info)
+        };
+
+        // Check if task is waiting on a future that's now ready
+        if let Some((ready_value, join_target)) = waiting_info {
+            let result = if let Some(value) = ready_value {
+                Some(value)
+            } else if let Some(target_id) = join_target {
+                self.executor.get_completed_result(target_id)
+            } else {
+                None
+            };
+
+            if let Some(result) = result {
+                // Clear waiting_on
+                if let Some(task) = self.executor.get_task_mut(task_id) {
+                    task.waiting_on = None;
+                }
+
+                // Future is ready - restore task state and push result
+                self.stack = task_stack;
+                for (closure, ip, stack_base) in &task_frames {
+                    self.frames.push(CallFrame {
+                        closure: closure.clone(),
+                        ip: *ip,
+                        stack_base: *stack_base,
+                    });
+                }
+
+                // Push the result onto the stack
+                self.push(result)?;
+
+                // Continue execution
+                match self.execute() {
+                    Ok(value) => {
+                        // Task completed
+                        self.executor.complete_task(task_id, value);
+                    }
+                    Err(e) if e.to_string() == "__task_yield__" => {
+                        // Task yielded - state already saved in Await handler
+                    }
+                    Err(e) => {
+                        self.stack = saved_stack;
+                        self.frames = saved_frames;
+                        self.executor.set_current_task(None);
+                        return Err(e);
+                    }
+                }
+
+                self.stack = saved_stack;
+                self.frames = saved_frames;
+                self.executor.set_current_task(None);
+                return Ok(());
+            }
+        }
+
+        // Fresh task or resumed task without a ready future
+        if task_frames.is_empty() {
+            // Fresh task - get the future from the stack
+            if task_stack.is_empty() {
+                self.stack = saved_stack;
+                self.frames = saved_frames;
+                self.executor.set_current_task(None);
+                return Ok(());
+            }
+
+            let future = task_stack[0].clone();
+            if let Value::Future(future_state) = future {
+                let state = future_state.borrow();
+                if let FutureState::Pending { closure } = &*state {
+                    let closure = closure.clone();
+                    drop(state);
+
+                    // Clear task state and set up for execution
+                    self.stack.clear();
+                    self.frames.clear();
+
+                    // Push the closure's call frame
+                    self.frames.push(CallFrame {
+                        closure,
+                        ip: 0,
+                        stack_base: 0,
+                    });
+
+                    // Execute
+                    match self.execute() {
+                        Ok(value) => {
+                            self.executor.complete_task(task_id, value);
+                        }
+                        Err(e) if e.to_string() == "__task_yield__" => {
+                            // Task yielded
+                        }
+                        Err(e) => {
+                            self.stack = saved_stack;
+                            self.frames = saved_frames;
+                            self.executor.set_current_task(None);
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Resumed task with saved frames
+            self.stack = task_stack;
+            for (closure, ip, stack_base) in &task_frames {
+                self.frames.push(CallFrame {
+                    closure: closure.clone(),
+                    ip: *ip,
+                    stack_base: *stack_base,
+                });
+            }
+
+            match self.execute() {
+                Ok(value) => {
+                    self.executor.complete_task(task_id, value);
+                }
+                Err(e) if e.to_string() == "__task_yield__" => {
+                    // Task yielded
+                }
+                Err(e) => {
+                    self.stack = saved_stack;
+                    self.frames = saved_frames;
+                    self.executor.set_current_task(None);
+                    return Err(e);
+                }
+            }
+        }
+
+        // Restore the saved VM state
+        self.stack = saved_stack;
+        self.frames = saved_frames;
+        self.executor.set_current_task(None);
+        Ok(())
     }
 
     /// Register native functions.
@@ -1920,6 +2157,218 @@ impl VM {
                         return Err(RuntimeError::AssertionFailed);
                     }
                     self.push(Value::Unit)?;
+                }
+
+                // ASYNC
+                OpCode::CreateFuture => {
+                    let idx = self.read_u16()? as usize;
+                    let upvalue_count = self.read_byte()? as usize;
+
+                    let proto = match self.read_constant(idx)? {
+                        Constant::Function(f) => Rc::new((**f).clone()),
+                        _ => {
+                            return Err(RuntimeError::Custom(
+                                "Invalid future closure constant".to_string(),
+                            ))
+                        }
+                    };
+
+                    let mut upvalues = Vec::with_capacity(upvalue_count);
+                    for _ in 0..upvalue_count {
+                        let is_local = self.read_byte()? != 0;
+                        let index = self.read_byte()? as usize;
+
+                        let upvalue = if is_local {
+                            let slot = self.current_frame()?.stack_base + index;
+                            self.capture_upvalue(slot)
+                        } else {
+                            let parent_upvalues = &self.current_frame()?.closure.upvalues;
+                            if index >= parent_upvalues.len() {
+                                return Err(RuntimeError::InternalError(format!(
+                                    "parent upvalue index out of bounds: index={} len={}",
+                                    index,
+                                    parent_upvalues.len()
+                                )));
+                            }
+                            parent_upvalues[index].clone()
+                        };
+                        upvalues.push(upvalue);
+                    }
+
+                    let closure = Rc::new(Closure { proto, upvalues });
+                    let future_state = FutureState::Pending { closure };
+                    self.push(Value::Future(Rc::new(RefCell::new(future_state))))?;
+                }
+
+                OpCode::Await => {
+                    let future = self.pop()?;
+                    match future {
+                        Value::Future(future_state) => {
+                            let state = future_state.borrow();
+                            match &*state {
+                                FutureState::Ready(value) => {
+                                    // Future already resolved - push the result
+                                    let result = value.clone();
+                                    drop(state);
+                                    self.push(result)?;
+                                }
+                                FutureState::Pending { closure } => {
+                                    // Execute the closure to get the result
+                                    // Check if we're in an async context (running as a task)
+                                    if self.executor.current_task_id().is_some() {
+                                        // In async context - we should run the future's closure
+                                        // and possibly yield if it's not ready
+                                        let closure = closure.clone();
+                                        drop(state);
+
+                                        // Call the future's closure
+                                        let stack_base = self.stack.len();
+                                        self.frames.push(CallFrame {
+                                            closure,
+                                            ip: 0,
+                                            stack_base,
+                                        });
+
+                                        // Continue execution - the closure will run
+                                        // and when it returns, we'll have the result
+                                    } else {
+                                        // Not in async context - synchronous execution
+                                        let closure = closure.clone();
+                                        drop(state);
+
+                                        // Call the future's closure synchronously
+                                        let stack_base = self.stack.len();
+                                        self.frames.push(CallFrame {
+                                            closure,
+                                            ip: 0,
+                                            stack_base,
+                                        });
+                                    }
+                                }
+                                FutureState::Timer { deadline_ms: _ } => {
+                                    // Timer future - check if we're in async context
+                                    if let Some(task_id) = self.executor.current_task_id() {
+                                        // In async context - yield and wait for timer
+                                        let state_clone = future_state.clone();
+                                        drop(state);
+
+                                        // Save state to the task
+                                        let saved_stack = self.stack.clone();
+                                        let saved_frames: Vec<_> = self
+                                            .frames
+                                            .iter()
+                                            .map(|f| (f.closure.clone(), f.ip, f.stack_base))
+                                            .collect();
+
+                                        self.executor.suspend_current_task(
+                                            saved_stack,
+                                            saved_frames,
+                                            state_clone,
+                                        );
+
+                                        // Register the timer
+                                        if let FutureState::Timer { deadline_ms } =
+                                            &*future_state.borrow()
+                                        {
+                                            self.executor.register_timer(task_id, *deadline_ms);
+                                        }
+
+                                        // Yield - return a special error that tells caller to yield
+                                        return Err(RuntimeError::Custom("__task_yield__".to_string()));
+                                    } else {
+                                        // Not in async context - busy-wait (not ideal but works)
+                                        use std::time::{SystemTime, UNIX_EPOCH};
+                                        let state_ref = future_state.borrow();
+                                        if let FutureState::Timer { deadline_ms } = &*state_ref {
+                                            let deadline = *deadline_ms;
+                                            drop(state_ref);
+
+                                            loop {
+                                                let now = SystemTime::now()
+                                                    .duration_since(UNIX_EPOCH)
+                                                    .map(|d| d.as_millis())
+                                                    .unwrap_or(0);
+                                                if now >= deadline {
+                                                    break;
+                                                }
+                                                std::thread::sleep(std::time::Duration::from_millis(
+                                                    1,
+                                                ));
+                                            }
+                                            self.push(Value::Unit)?;
+                                        }
+                                    }
+                                }
+                                FutureState::JoinHandle { task_id: target_task_id } => {
+                                    let target_id = *target_task_id;
+                                    drop(state);
+
+                                    // Check if target task is already complete
+                                    if self.executor.has_task_completed(target_id) {
+                                        // Task completed - get result and push it
+                                        if let Some(result) = self.executor.get_completed_result(target_id) {
+                                            self.push(result)?;
+                                        } else {
+                                            self.push(Value::Unit)?;
+                                        }
+                                    } else if let Some(current_task_id) = self.executor.current_task_id() {
+                                        // In async context - register as waiter and yield
+                                        let state_clone = future_state.clone();
+
+                                        // Save state to the task
+                                        let saved_stack = self.stack.clone();
+                                        let saved_frames: Vec<_> = self
+                                            .frames
+                                            .iter()
+                                            .map(|f| (f.closure.clone(), f.ip, f.stack_base))
+                                            .collect();
+
+                                        self.executor.suspend_current_task(
+                                            saved_stack,
+                                            saved_frames,
+                                            state_clone,
+                                        );
+
+                                        // Register this task as waiting on the target task
+                                        self.executor.register_task_waiter(target_id, current_task_id);
+
+                                        // Yield
+                                        return Err(RuntimeError::Custom("__task_yield__".to_string()));
+                                    } else {
+                                        // Not in async context - busy-wait for task completion
+                                        use std::time::Duration;
+                                        loop {
+                                            // Process timers and run ready tasks
+                                            self.executor.process_timers();
+                                            while let Some(ready_id) = self.executor.pop_ready_task() {
+                                                // Don't run ourselves
+                                                if self.executor.current_task_id() == Some(ready_id) {
+                                                    continue;
+                                                }
+                                                self.run_task(ready_id)?;
+                                            }
+
+                                            if self.executor.has_task_completed(target_id) {
+                                                if let Some(result) = self.executor.get_completed_result(target_id) {
+                                                    self.push(result)?;
+                                                } else {
+                                                    self.push(Value::Unit)?;
+                                                }
+                                                break;
+                                            }
+                                            std::thread::sleep(Duration::from_millis(1));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "Future",
+                                got: future.type_name().to_string(),
+                            });
+                        }
+                    }
                 }
 
                 OpCode::Nop => {}

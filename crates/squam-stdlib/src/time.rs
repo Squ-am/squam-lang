@@ -1,4 +1,5 @@
-use squam_vm::{Value, VM};
+use squam_vm::{FutureState, RuntimeError, Value, VM};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -89,6 +90,93 @@ pub fn register(vm: &mut VM) {
             Some(start) => Ok(Value::Float(start.elapsed().as_secs_f64())),
             None => Err("timer_elapsed_secs: timer not started".to_string()),
         }
+    });
+
+    // async_sleep(ms: int) -> Future<()>
+    // Returns a future that resolves after the specified milliseconds.
+    // Note: Currently uses blocking sleep - not true cooperative async.
+    vm.define_native("async_sleep", 1, |args| match &args[0] {
+        Value::Int(ms) => {
+            if *ms < 0 {
+                return Err("async_sleep: milliseconds must be non-negative".to_string());
+            }
+            let deadline_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() + (*ms as u128))
+                .unwrap_or(0);
+            Ok(Value::Future(Rc::new(RefCell::new(FutureState::Timer {
+                deadline_ms,
+            }))))
+        }
+        _ => Err("async_sleep: expected int (milliseconds)".to_string()),
+    });
+
+    // async_sleep_secs(secs: float) -> Future<()>
+    // Returns a future that resolves after the specified seconds.
+    // Note: Currently uses blocking sleep - not true cooperative async.
+    vm.define_native("async_sleep_secs", 1, |args| {
+        let ms = match &args[0] {
+            Value::Float(secs) => {
+                if *secs < 0.0 {
+                    return Err("async_sleep_secs: seconds must be non-negative".to_string());
+                }
+                (*secs * 1000.0) as u128
+            }
+            Value::Int(secs) => {
+                if *secs < 0 {
+                    return Err("async_sleep_secs: seconds must be non-negative".to_string());
+                }
+                (*secs as u128) * 1000
+            }
+            _ => return Err("async_sleep_secs: expected number".to_string()),
+        };
+        let deadline_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() + ms)
+            .unwrap_or(0);
+        Ok(Value::Future(Rc::new(RefCell::new(FutureState::Timer {
+            deadline_ms,
+        }))))
+    });
+
+    // block_on(future) -> T
+    // Runs a Future to completion using the event loop.
+    // This is the entry point for running async code from synchronous contexts.
+    // Enables true cooperative multitasking with other spawned tasks.
+    vm.define_vm_native("block_on", 1, |vm, args| match &args[0] {
+        Value::Future(future_state) => {
+            // Check if already ready
+            {
+                let state = future_state.borrow();
+                if let FutureState::Ready(value) = &*state {
+                    return Ok(value.clone());
+                }
+            }
+
+            // Spawn as a task and run the event loop until complete
+            let future = args[0].clone();
+            let task_id = vm.spawn(future);
+            vm.block_on_task(task_id)
+        }
+        _ => Err(RuntimeError::Custom(
+            "block_on: expected Future".to_string(),
+        )),
+    });
+
+    // spawn(future) -> Future<T> (JoinHandle)
+    // Spawns a future as a background task and returns a JoinHandle.
+    // The JoinHandle can be awaited to get the spawned task's result.
+    // Use this to run multiple async operations concurrently.
+    vm.define_vm_native("spawn", 1, |vm, args| match &args[0] {
+        Value::Future(_) => {
+            let future = args[0].clone();
+            let task_id = vm.spawn(future);
+            // Return a JoinHandle Future that can be awaited
+            Ok(Value::Future(Rc::new(RefCell::new(FutureState::JoinHandle {
+                task_id,
+            }))))
+        }
+        _ => Err(RuntimeError::Custom("spawn: expected Future".to_string())),
     });
 
     // Date/time formatting (basic)

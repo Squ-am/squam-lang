@@ -95,6 +95,10 @@ pub enum TokenKind {
     Move,
     #[token("where")]
     Where,
+    #[token("async")]
+    Async,
+    #[token("await")]
+    Await,
 
     // IDENTIFIER
     /// Identifier: foo, _bar, FooBar123
@@ -254,6 +258,8 @@ impl TokenKind {
                 | TokenKind::Ref
                 | TokenKind::Move
                 | TokenKind::Where
+                | TokenKind::Async
+                | TokenKind::Await
                 | TokenKind::True
                 | TokenKind::False
         )
@@ -304,6 +310,7 @@ impl TokenKind {
                 | TokenKind::SelfLower
                 | TokenKind::SelfUpper
                 | TokenKind::Move
+                | TokenKind::Async
         )
     }
 
@@ -345,6 +352,8 @@ impl TokenKind {
             TokenKind::Ref => "ref",
             TokenKind::Move => "move",
             TokenKind::Where => "where",
+            TokenKind::Async => "async",
+            TokenKind::Await => "await",
             TokenKind::Identifier => "identifier",
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",

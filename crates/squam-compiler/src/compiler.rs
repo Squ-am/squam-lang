@@ -1358,11 +1358,48 @@ impl Compiler {
             self.compile_pattern_binding(&param.pattern, true)?;
         }
 
-        // Compile body
-        self.compile_block(&func.body)?;
+        if func.is_async {
+            // For async functions, wrap the body in a Future
+            // First compile the inner body as a nested closure
+            self.states.push(CompilerState::new(
+                Some(format!("{}<async>", func.name.name)),
+                0,
+            ));
+            self.begin_scope();
 
-        // Implicit return of last expression or unit
-        self.emit(OpCode::Return);
+            // Compile the actual body
+            self.compile_block(&func.body)?;
+            self.emit(OpCode::Return);
+
+            self.end_scope();
+            let inner_state = self.states.pop().unwrap();
+            let inner_upvalues = inner_state.upvalues.clone();
+
+            let inner_proto = FunctionProto {
+                name: inner_state.function_name,
+                arity: 0,
+                min_arity: 0,
+                chunk: inner_state.chunk,
+                upvalues: inner_state.upvalues,
+                defaults: Vec::new(),
+            };
+
+            // Emit CreateFuture with the inner proto
+            let idx = self.add_constant(Constant::Function(Box::new(inner_proto)))?;
+            self.emit(OpCode::CreateFuture);
+            self.emit_u16(idx);
+            self.emit_byte(inner_upvalues.len() as u8);
+            for uv in &inner_upvalues {
+                self.emit_byte(if uv.is_local { 1 } else { 0 });
+                self.emit_byte(uv.index);
+            }
+            self.emit(OpCode::Return);
+        } else {
+            // Regular function - compile body directly
+            self.compile_block(&func.body)?;
+            // Implicit return of last expression or unit
+            self.emit(OpCode::Return);
+        }
 
         self.end_scope();
 
@@ -2620,6 +2657,50 @@ impl Compiler {
                     // Stack: [concatenated_result]
                 }
 
+                Ok(())
+            }
+
+            ExprKind::Await { operand } => {
+                // Compile the operand (should be a Future)
+                self.compile_expr(operand)?;
+                // Await the Future
+                self.emit(OpCode::Await);
+                Ok(())
+            }
+
+            ExprKind::AsyncBlock(block) => {
+                // Compile async block similar to a closure with 0 parameters
+                self.states.push(CompilerState::new(
+                    Some("<async>".to_string()),
+                    0,
+                ));
+                self.begin_scope();
+
+                // Compile the block body
+                self.compile_block(block)?;
+                self.emit(OpCode::Return);
+
+                self.end_scope();
+                let async_state = self.states.pop().unwrap();
+                let upvalues = async_state.upvalues.clone();
+
+                let proto = FunctionProto {
+                    name: async_state.function_name,
+                    arity: 0,
+                    min_arity: 0,
+                    chunk: async_state.chunk,
+                    upvalues: async_state.upvalues,
+                    defaults: Vec::new(),
+                };
+
+                let idx = self.add_constant(Constant::Function(Box::new(proto)))?;
+                self.emit(OpCode::CreateFuture);
+                self.emit_u16(idx);
+                self.emit_byte(upvalues.len() as u8);
+                for uv in &upvalues {
+                    self.emit_byte(if uv.is_local { 1 } else { 0 });
+                    self.emit_byte(uv.index);
+                }
                 Ok(())
             }
         }

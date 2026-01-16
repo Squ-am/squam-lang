@@ -190,6 +190,14 @@ pub enum OpCode {
     /// Stack: ref, value -> ()
     DerefStore = 0xA2,
 
+    // ASYNC (0xB0-0xBF)
+    /// Create a Future from a closure [proto_index: u16, upvalue_count: u8]
+    /// Stack: upvalues... -> Future
+    CreateFuture = 0xB0,
+    /// Await a Future
+    /// Stack: Future -> result value (or suspends execution)
+    Await = 0xB1,
+
     // NATIVE/FFI (0xF0-0xF7)
     /// Call native function [index: u16]
     NativeCall = 0xF0,
@@ -256,6 +264,7 @@ impl OpCode {
             | OpCode::IterNext
             | OpCode::Deref
             | OpCode::DerefStore
+            | OpCode::Await
             | OpCode::Print
             | OpCode::Panic
             | OpCode::Assert
@@ -293,7 +302,7 @@ impl OpCode {
             | OpCode::SetFieldNamed => 3,
 
             // 3-byte operand (u16 + u8)
-            OpCode::Closure | OpCode::Struct | OpCode::CallMethod | OpCode::MakeRef => 4,
+            OpCode::Closure | OpCode::Struct | OpCode::CallMethod | OpCode::MakeRef | OpCode::CreateFuture => 4,
             // 4-byte operand (u16 + u16 or u16 + u8 + u8)
             OpCode::Enum | OpCode::DefineMethod | OpCode::MatchEnum => 5,
             // 5-byte operand (u16 + u16 + u8)
@@ -380,6 +389,8 @@ impl OpCode {
             OpCode::MakeRef => "MAKE_REF",
             OpCode::Deref => "DEREF",
             OpCode::DerefStore => "DEREF_STORE",
+            OpCode::CreateFuture => "CREATE_FUTURE",
+            OpCode::Await => "AWAIT",
             OpCode::NativeCall => "NATIVE_CALL",
             OpCode::Print => "PRINT",
             OpCode::Panic => "PANIC",
@@ -471,6 +482,8 @@ impl TryFrom<u8> for OpCode {
             0xA0 => Ok(OpCode::MakeRef),
             0xA1 => Ok(OpCode::Deref),
             0xA2 => Ok(OpCode::DerefStore),
+            0xB0 => Ok(OpCode::CreateFuture),
+            0xB1 => Ok(OpCode::Await),
             0xF0 => Ok(OpCode::NativeCall),
             0xF8 => Ok(OpCode::Print),
             0xF9 => Ok(OpCode::Panic),
