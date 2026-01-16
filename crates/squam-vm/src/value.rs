@@ -198,7 +198,7 @@ impl SquamIterator for RangeIterator {
         };
         if in_range {
             let val = self.current;
-            self.current += 1;
+            self.current = self.current.saturating_add(1);
             Some(Value::Int(val))
         } else {
             None

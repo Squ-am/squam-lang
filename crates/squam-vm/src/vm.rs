@@ -94,6 +94,8 @@ pub struct VM {
     vm_natives: Vec<(VMNativeFn, u8)>, // (function, arity)
     /// Inline cache for field/method/global access
     inline_cache: InlineCacheManager,
+    /// Instruction counter for periodic GC checks
+    instruction_count: usize,
 }
 
 impl VM {
@@ -119,6 +121,7 @@ impl VM {
             gc_enabled: true,
             vm_natives: Vec::new(),
             inline_cache: InlineCacheManager::new(),
+            instruction_count: 0,
         };
         vm.register_natives();
         vm
@@ -457,11 +460,23 @@ impl VM {
         self.execute_with_target_frame_count(None)
     }
 
+    /// Check interval for garbage collection (instructions between checks).
+    const GC_CHECK_INTERVAL: usize = 10_000;
+
     fn execute_with_target_frame_count(
         &mut self,
         target_frame_count: Option<usize>,
     ) -> Result<Value, RuntimeError> {
         loop {
+            // Periodic GC check
+            self.instruction_count += 1;
+            if self.gc_enabled
+                && self.instruction_count.is_multiple_of(Self::GC_CHECK_INTERVAL)
+                && self.gc_heap.should_collect()
+            {
+                self.collect_garbage();
+            }
+
             let opcode_byte = self.read_byte();
             let opcode = OpCode::try_from(opcode_byte)
                 .map_err(|_| RuntimeError::InvalidOpcode(opcode_byte))?;
@@ -589,7 +604,7 @@ impl VM {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     let result = match (&a, &b) {
-                        (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+                        (Value::Int(a), Value::Int(b)) => Value::Int(a.wrapping_add(*b)),
                         (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
                         (Value::Int(a), Value::Float(b)) => Value::Float(*a as f64 + b),
                         (Value::Float(a), Value::Int(b)) => Value::Float(a + *b as f64),
@@ -608,13 +623,13 @@ impl VM {
                 OpCode::Sub => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let result = self.binary_num_op(&a, &b, |a, b| a - b, |a, b| a - b)?;
+                    let result = self.binary_num_op(&a, &b, |a, b| a.wrapping_sub(b), |a, b| a - b)?;
                     self.push(result)?;
                 }
                 OpCode::Mul => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let result = self.binary_num_op(&a, &b, |a, b| a * b, |a, b| a * b)?;
+                    let result = self.binary_num_op(&a, &b, |a, b| a.wrapping_mul(b), |a, b| a * b)?;
                     self.push(result)?;
                 }
                 OpCode::Div => {
@@ -641,7 +656,7 @@ impl VM {
                 OpCode::Neg => {
                     let a = self.pop()?;
                     let result = match a {
-                        Value::Int(n) => Value::Int(-n),
+                        Value::Int(n) => Value::Int(n.wrapping_neg()),
                         Value::Float(n) => Value::Float(-n),
                         _ => {
                             return Err(RuntimeError::TypeError {
@@ -653,11 +668,11 @@ impl VM {
                     self.push(result)?;
                 }
                 OpCode::IAdd => {
-                    // Integer add (optimized)
+                    // Integer add (optimized, wrapping)
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match (&a, &b) {
-                        (Value::Int(a), Value::Int(b)) => self.push(Value::Int(a + b))?,
+                        (Value::Int(a), Value::Int(b)) => self.push(Value::Int(a.wrapping_add(*b)))?,
                         _ => {
                             return Err(RuntimeError::TypeError {
                                 expected: "int",
@@ -667,10 +682,11 @@ impl VM {
                     }
                 }
                 OpCode::ISub => {
+                    // Integer subtract (optimized, wrapping)
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match (&a, &b) {
-                        (Value::Int(a), Value::Int(b)) => self.push(Value::Int(a - b))?,
+                        (Value::Int(a), Value::Int(b)) => self.push(Value::Int(a.wrapping_sub(*b)))?,
                         _ => {
                             return Err(RuntimeError::TypeError {
                                 expected: "int",

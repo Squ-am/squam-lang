@@ -453,6 +453,7 @@ fn bench_gc(c: &mut Criterion) {
     use squam_vm::{GcHeap, Trace, Tracer};
 
     #[derive(Debug)]
+    #[allow(dead_code)]
     struct TestValue(i64);
 
     impl Trace for TestValue {

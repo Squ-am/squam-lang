@@ -1403,7 +1403,7 @@ impl TypeChecker {
                         let has_receiver = f
                             .params
                             .first()
-                            .is_some_and(|p| Self::is_self_param_static(p));
+                            .is_some_and(Self::is_self_param_static);
 
                         // Collect non-self parameters first
                         let non_self_params: Vec<_> = f

@@ -4,10 +4,11 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 /// Compare two values for sorting.
+/// Uses total_cmp for floats to handle NaN consistently.
 fn value_cmp(a: &Value, b: &Value, descending: bool) -> Ordering {
     let ord = match (a, b) {
         (Value::Int(a), Value::Int(b)) => a.cmp(b),
-        (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+        (Value::Float(a), Value::Float(b)) => a.total_cmp(b),
         (Value::String(a), Value::String(b)) => a.cmp(b),
         _ => Ordering::Equal,
     };
