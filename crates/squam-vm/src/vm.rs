@@ -185,7 +185,7 @@ impl VM {
         });
 
         self.define_native("len", 1, |args| match &args[0] {
-            Value::String(s) => Ok(Value::Int(s.len() as i64)),
+            Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
             Value::Array(arr) => Ok(Value::Int(arr.borrow().len() as i64)),
             Value::Tuple(t) => Ok(Value::Int(t.len() as i64)),
             other => Err(format!("len() not supported for {}", other.type_name())),
@@ -366,35 +366,83 @@ impl VM {
     // Frame operations
 
     #[inline]
-    fn current_frame(&self) -> &CallFrame {
-        self.frames.last().expect("No call frame")
+    fn current_frame(&self) -> Result<&CallFrame, RuntimeError> {
+        self.frames.last().ok_or_else(|| {
+            RuntimeError::InternalError("no call frame on stack".to_string())
+        })
     }
 
     #[inline]
-    fn current_frame_mut(&mut self) -> &mut CallFrame {
-        self.frames.last_mut().expect("No call frame")
+    fn current_frame_mut(&mut self) -> Result<&mut CallFrame, RuntimeError> {
+        self.frames.last_mut().ok_or_else(|| {
+            RuntimeError::InternalError("no call frame on stack".to_string())
+        })
     }
 
     #[inline]
-    fn read_byte(&mut self) -> u8 {
-        let frame = self.current_frame_mut();
-        let byte = frame.chunk().code[frame.ip];
+    fn read_byte(&mut self) -> Result<u8, RuntimeError> {
+        let frame = self.current_frame_mut()?;
+        let code = &frame.chunk().code;
+        if frame.ip >= code.len() {
+            return Err(RuntimeError::InternalError(format!(
+                "bytecode read out of bounds: ip={} len={}",
+                frame.ip, code.len()
+            )));
+        }
+        let byte = code[frame.ip];
         frame.ip += 1;
-        byte
+        Ok(byte)
     }
 
     #[inline]
-    fn read_u16(&mut self) -> u16 {
-        let frame = self.current_frame_mut();
+    fn read_u16(&mut self) -> Result<u16, RuntimeError> {
+        let frame = self.current_frame_mut()?;
         let chunk = &frame.closure.proto.chunk;
+        if frame.ip + 1 >= chunk.code.len() {
+            return Err(RuntimeError::InternalError(format!(
+                "bytecode read_u16 out of bounds: ip={} len={}",
+                frame.ip, chunk.code.len()
+            )));
+        }
         // Little-endian: low byte first, high byte second
         let value = (chunk.code[frame.ip] as u16) | ((chunk.code[frame.ip + 1] as u16) << 8);
         frame.ip += 2;
-        value
+        Ok(value)
     }
 
-    fn read_constant(&mut self, index: usize) -> &Constant {
-        &self.current_frame().closure.proto.chunk.constants[index]
+    fn read_constant(&mut self, index: usize) -> Result<&Constant, RuntimeError> {
+        let constants = &self.current_frame()?.closure.proto.chunk.constants;
+        constants.get(index).ok_or_else(|| {
+            RuntimeError::InternalError(format!(
+                "constant index out of bounds: index={} len={}",
+                index, constants.len()
+            ))
+        })
+    }
+
+    /// Safely resolve a potentially negative index to a usize.
+    /// Returns Err with IndexOutOfBounds if the index is invalid.
+    #[inline]
+    fn resolve_index(idx: i64, len: usize) -> Result<usize, RuntimeError> {
+        if idx >= 0 {
+            let idx = idx as usize;
+            if idx < len {
+                Ok(idx)
+            } else {
+                Err(RuntimeError::IndexOutOfBounds {
+                    index: idx as i64,
+                    length: len,
+                })
+            }
+        } else {
+            // Negative index: -1 is last element, -2 is second to last, etc.
+            let abs_idx = idx.unsigned_abs() as usize;
+            if abs_idx <= len {
+                Ok(len - abs_idx)
+            } else {
+                Err(RuntimeError::IndexOutOfBounds { index: idx, length: len })
+            }
+        }
     }
 
     fn call_closure(&mut self, closure: Rc<Closure>, arg_count: u8) -> Result<(), RuntimeError> {
@@ -477,19 +525,19 @@ impl VM {
                 self.collect_garbage();
             }
 
-            let opcode_byte = self.read_byte();
+            let opcode_byte = self.read_byte()?;
             let opcode = OpCode::try_from(opcode_byte)
                 .map_err(|_| RuntimeError::InvalidOpcode(opcode_byte))?;
 
             match opcode {
                 // CONSTANTS
                 OpCode::Const => {
-                    let idx = self.read_u16() as usize;
+                    let idx = self.read_u16()? as usize;
                     let value = self.constant_to_value(idx)?;
                     self.push(value)?;
                 }
                 OpCode::ConstSmall => {
-                    let idx = self.read_byte() as usize;
+                    let idx = self.read_byte()? as usize;
                     let value = self.constant_to_value(idx)?;
                     self.push(value)?;
                 }
@@ -512,7 +560,7 @@ impl VM {
                     self.pop()?;
                 }
                 OpCode::PopN => {
-                    let n = self.read_byte() as usize;
+                    let n = self.read_byte()? as usize;
                     for _ in 0..n {
                         self.pop()?;
                     }
@@ -526,34 +574,62 @@ impl VM {
 
                 // LOCALS
                 OpCode::LoadLocal => {
-                    let slot = self.read_u16() as usize;
-                    let base = self.current_frame().stack_base;
-                    let value = self.stack[base + slot].clone();
+                    let slot = self.read_u16()? as usize;
+                    let base = self.current_frame()?.stack_base;
+                    let idx = base + slot;
+                    if idx >= self.stack.len() {
+                        return Err(RuntimeError::InternalError(format!(
+                            "local variable index out of bounds: base={} slot={} stack_len={}",
+                            base, slot, self.stack.len()
+                        )));
+                    }
+                    let value = self.stack[idx].clone();
                     self.push(value)?;
                 }
                 OpCode::LoadLocalSmall => {
-                    let slot = self.read_byte() as usize;
-                    let base = self.current_frame().stack_base;
-                    let value = self.stack[base + slot].clone();
+                    let slot = self.read_byte()? as usize;
+                    let base = self.current_frame()?.stack_base;
+                    let idx = base + slot;
+                    if idx >= self.stack.len() {
+                        return Err(RuntimeError::InternalError(format!(
+                            "local variable index out of bounds: base={} slot={} stack_len={}",
+                            base, slot, self.stack.len()
+                        )));
+                    }
+                    let value = self.stack[idx].clone();
                     self.push(value)?;
                 }
                 OpCode::StoreLocal => {
-                    let slot = self.read_u16() as usize;
+                    let slot = self.read_u16()? as usize;
                     let value = self.peek(0)?.clone();
-                    let base = self.current_frame().stack_base;
-                    self.stack[base + slot] = value;
+                    let base = self.current_frame()?.stack_base;
+                    let idx = base + slot;
+                    if idx >= self.stack.len() {
+                        return Err(RuntimeError::InternalError(format!(
+                            "local variable index out of bounds: base={} slot={} stack_len={}",
+                            base, slot, self.stack.len()
+                        )));
+                    }
+                    self.stack[idx] = value;
                 }
                 OpCode::StoreLocalSmall => {
-                    let slot = self.read_byte() as usize;
+                    let slot = self.read_byte()? as usize;
                     let value = self.peek(0)?.clone();
-                    let base = self.current_frame().stack_base;
-                    self.stack[base + slot] = value;
+                    let base = self.current_frame()?.stack_base;
+                    let idx = base + slot;
+                    if idx >= self.stack.len() {
+                        return Err(RuntimeError::InternalError(format!(
+                            "local variable index out of bounds: base={} slot={} stack_len={}",
+                            base, slot, self.stack.len()
+                        )));
+                    }
+                    self.stack[idx] = value;
                 }
 
                 // GLOBALS
                 OpCode::LoadGlobal => {
-                    let idx = self.read_u16() as usize;
-                    let name = match self.read_constant(idx) {
+                    let idx = self.read_u16()? as usize;
+                    let name = match self.read_constant(idx)? {
                         Constant::String(s) => s.clone(),
                         _ => return Err(RuntimeError::Custom("Invalid global name".to_string())),
                     };
@@ -565,8 +641,8 @@ impl VM {
                     self.push(value)?;
                 }
                 OpCode::StoreGlobal => {
-                    let idx = self.read_u16() as usize;
-                    let name = match self.read_constant(idx) {
+                    let idx = self.read_u16()? as usize;
+                    let name = match self.read_constant(idx)? {
                         Constant::String(s) => s.clone(),
                         _ => return Err(RuntimeError::Custom("Invalid global name".to_string())),
                     };
@@ -576,8 +652,15 @@ impl VM {
 
                 // UPVALUES
                 OpCode::LoadUpvalue => {
-                    let idx = self.read_byte() as usize;
-                    let upvalue = self.current_frame().closure.upvalues[idx].clone();
+                    let idx = self.read_byte()? as usize;
+                    let upvalues = &self.current_frame()?.closure.upvalues;
+                    if idx >= upvalues.len() {
+                        return Err(RuntimeError::InternalError(format!(
+                            "upvalue index out of bounds: index={} len={}",
+                            idx, upvalues.len()
+                        )));
+                    }
+                    let upvalue = upvalues[idx].clone();
                     let value = match &*upvalue.borrow() {
                         Upvalue::Open(slot) => self.stack[*slot].clone(),
                         Upvalue::Closed(v) => v.clone(),
@@ -585,9 +668,16 @@ impl VM {
                     self.push(value)?;
                 }
                 OpCode::StoreUpvalue => {
-                    let idx = self.read_byte() as usize;
+                    let idx = self.read_byte()? as usize;
                     let value = self.peek(0)?.clone();
-                    let upvalue = self.current_frame().closure.upvalues[idx].clone();
+                    let upvalues = &self.current_frame()?.closure.upvalues;
+                    if idx >= upvalues.len() {
+                        return Err(RuntimeError::InternalError(format!(
+                            "upvalue index out of bounds: index={} len={}",
+                            idx, upvalues.len()
+                        )));
+                    }
+                    let upvalue = upvalues[idx].clone();
                     match &mut *upvalue.borrow_mut() {
                         Upvalue::Open(slot) => self.stack[*slot] = value,
                         Upvalue::Closed(v) => *v = value,
@@ -742,7 +832,12 @@ impl VM {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match (&a, &b) {
-                        (Value::Float(a), Value::Float(b)) => self.push(Value::Float(a / b))?,
+                        (Value::Float(a), Value::Float(b)) => {
+                            if *b == 0.0 {
+                                return Err(RuntimeError::DivisionByZero);
+                            }
+                            self.push(Value::Float(a / b))?
+                        }
                         _ => {
                             return Err(RuntimeError::TypeError {
                                 expected: "float",
@@ -891,38 +986,45 @@ impl VM {
 
                 // CONTROL FLOW
                 OpCode::Jump => {
-                    let offset = self.read_u16() as usize;
-                    self.current_frame_mut().ip += offset;
+                    let offset = self.read_u16()? as usize;
+                    self.current_frame_mut()?.ip += offset;
                 }
                 OpCode::JumpIfFalse => {
-                    let offset = self.read_u16() as usize;
+                    let offset = self.read_u16()? as usize;
                     let condition = self.pop()?;
                     if !condition.is_truthy() {
-                        self.current_frame_mut().ip += offset;
+                        self.current_frame_mut()?.ip += offset;
                     }
                 }
                 OpCode::JumpIfFalseNoPop => {
-                    let offset = self.read_u16() as usize;
+                    let offset = self.read_u16()? as usize;
                     let condition = self.peek(0)?;
                     if !condition.is_truthy() {
-                        self.current_frame_mut().ip += offset;
+                        self.current_frame_mut()?.ip += offset;
                     }
                 }
                 OpCode::JumpIfTrueNoPop => {
-                    let offset = self.read_u16() as usize;
+                    let offset = self.read_u16()? as usize;
                     let condition = self.peek(0)?;
                     if condition.is_truthy() {
-                        self.current_frame_mut().ip += offset;
+                        self.current_frame_mut()?.ip += offset;
                     }
                 }
                 OpCode::Loop => {
-                    let offset = self.read_u16() as usize;
-                    self.current_frame_mut().ip -= offset;
+                    let offset = self.read_u16()? as usize;
+                    self.current_frame_mut()?.ip -= offset;
                 }
 
                 // CALLS
                 OpCode::Call => {
-                    let arg_count = self.read_byte();
+                    let arg_count = self.read_byte()?;
+                    let required_stack = 1 + arg_count as usize; // callee + args
+                    if self.stack.len() < required_stack {
+                        return Err(RuntimeError::InternalError(format!(
+                            "stack underflow in Call: need {} elements, have {}",
+                            required_stack, self.stack.len()
+                        )));
+                    }
                     let callee_idx = self.stack.len() - 1 - arg_count as usize;
                     let callee = self.stack[callee_idx].clone();
 
@@ -967,7 +1069,14 @@ impl VM {
                     }
                 }
                 OpCode::TailCall => {
-                    let arg_count = self.read_byte();
+                    let arg_count = self.read_byte()?;
+                    let required_stack = 1 + arg_count as usize; // callee + args
+                    if self.stack.len() < required_stack {
+                        return Err(RuntimeError::InternalError(format!(
+                            "stack underflow in TailCall: need {} elements, have {}",
+                            required_stack, self.stack.len()
+                        )));
+                    }
                     let callee_idx = self.stack.len() - 1 - arg_count as usize;
                     let callee = self.stack[callee_idx].clone();
 
@@ -981,7 +1090,7 @@ impl VM {
                             }
 
                             // Reuse current frame
-                            let frame = self.current_frame_mut();
+                            let frame = self.current_frame_mut()?;
                             let old_base = frame.stack_base;
 
                             // Copy arguments to frame base
@@ -994,7 +1103,7 @@ impl VM {
                             self.stack.truncate(old_base + arg_count as usize);
 
                             // Update frame
-                            let frame = self.current_frame_mut();
+                            let frame = self.current_frame_mut()?;
                             frame.closure = closure;
                             frame.ip = 0;
                         }
@@ -1003,7 +1112,9 @@ impl VM {
                 }
                 OpCode::Return => {
                     let result = self.pop()?;
-                    let frame = self.frames.pop().unwrap();
+                    let frame = self.frames.pop().ok_or_else(|| {
+                        RuntimeError::InternalError("frame stack underflow on return".to_string())
+                    })?;
 
                     // Close upvalues
                     self.close_upvalues(frame.stack_base);
@@ -1026,12 +1137,12 @@ impl VM {
                 OpCode::CallMethod => {
                     // Capture call site for inline caching (before reading operands)
                     let call_site =
-                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+                        CallSiteId::from_offset(self.current_frame()?.ip.saturating_sub(1));
 
-                    let method_name_idx = self.read_u16() as usize;
-                    let arg_count = self.read_byte();
+                    let method_name_idx = self.read_u16()? as usize;
+                    let arg_count = self.read_byte()?;
 
-                    let method_name = match self.read_constant(method_name_idx) {
+                    let method_name = match self.read_constant(method_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1087,13 +1198,13 @@ impl VM {
                 OpCode::CallStatic => {
                     // Capture call site for inline caching (before reading operands)
                     let call_site =
-                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+                        CallSiteId::from_offset(self.current_frame()?.ip.saturating_sub(1));
 
-                    let type_name_idx = self.read_u16() as usize;
-                    let method_name_idx = self.read_u16() as usize;
-                    let arg_count = self.read_byte();
+                    let type_name_idx = self.read_u16()? as usize;
+                    let method_name_idx = self.read_u16()? as usize;
+                    let arg_count = self.read_byte()?;
 
-                    let type_name = match self.read_constant(type_name_idx) {
+                    let type_name = match self.read_constant(type_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1102,7 +1213,7 @@ impl VM {
                         }
                     };
 
-                    let method_name = match self.read_constant(method_name_idx) {
+                    let method_name = match self.read_constant(method_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1145,10 +1256,10 @@ impl VM {
                 }
 
                 OpCode::DefineMethod => {
-                    let type_name_idx = self.read_u16() as usize;
-                    let method_name_idx = self.read_u16() as usize;
+                    let type_name_idx = self.read_u16()? as usize;
+                    let method_name_idx = self.read_u16()? as usize;
 
-                    let type_name = match self.read_constant(type_name_idx) {
+                    let type_name = match self.read_constant(type_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1157,7 +1268,7 @@ impl VM {
                         }
                     };
 
-                    let method_name = match self.read_constant(method_name_idx) {
+                    let method_name = match self.read_constant(method_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1192,10 +1303,10 @@ impl VM {
 
                 // CLOSURES
                 OpCode::Closure => {
-                    let idx = self.read_u16() as usize;
-                    let upvalue_count = self.read_byte() as usize;
+                    let idx = self.read_u16()? as usize;
+                    let upvalue_count = self.read_byte()? as usize;
 
-                    let proto = match self.read_constant(idx) {
+                    let proto = match self.read_constant(idx)? {
                         Constant::Function(f) => Rc::new((**f).clone()),
                         _ => {
                             return Err(RuntimeError::Custom(
@@ -1206,14 +1317,21 @@ impl VM {
 
                     let mut upvalues = Vec::with_capacity(upvalue_count);
                     for _ in 0..upvalue_count {
-                        let is_local = self.read_byte() != 0;
-                        let index = self.read_byte() as usize;
+                        let is_local = self.read_byte()? != 0;
+                        let index = self.read_byte()? as usize;
 
                         let upvalue = if is_local {
-                            let slot = self.current_frame().stack_base + index;
+                            let slot = self.current_frame()?.stack_base + index;
                             self.capture_upvalue(slot)
                         } else {
-                            self.current_frame().closure.upvalues[index].clone()
+                            let parent_upvalues = &self.current_frame()?.closure.upvalues;
+                            if index >= parent_upvalues.len() {
+                                return Err(RuntimeError::InternalError(format!(
+                                    "parent upvalue index out of bounds: index={} len={}",
+                                    index, parent_upvalues.len()
+                                )));
+                            }
+                            parent_upvalues[index].clone()
                         };
                         upvalues.push(upvalue);
                     }
@@ -1224,29 +1342,29 @@ impl VM {
 
                 // DATA STRUCTURES
                 OpCode::Tuple => {
-                    let count = self.read_byte() as usize;
-                    let mut elements = Vec::with_capacity(count);
-                    for _ in 0..count {
-                        elements.push(self.pop()?);
+                    let count = self.read_byte()? as usize;
+                    if self.stack.len() < count {
+                        return Err(RuntimeError::StackUnderflow);
                     }
-                    elements.reverse();
+                    let start = self.stack.len() - count;
+                    let elements: Vec<Value> = self.stack.drain(start..).collect();
                     self.push(Value::Tuple(Rc::new(elements)))?;
                 }
                 OpCode::Array => {
-                    let count = self.read_u16() as usize;
-                    let mut elements = Vec::with_capacity(count);
-                    for _ in 0..count {
-                        elements.push(self.pop()?);
+                    let count = self.read_u16()? as usize;
+                    if self.stack.len() < count {
+                        return Err(RuntimeError::StackUnderflow);
                     }
-                    elements.reverse();
+                    let start = self.stack.len() - count;
+                    let elements: Vec<Value> = self.stack.drain(start..).collect();
                     self.push(Value::Array(Rc::new(RefCell::new(elements))))?;
                 }
                 OpCode::Struct => {
-                    let struct_info_idx = self.read_u16();
-                    let field_count = self.read_byte() as usize;
+                    let struct_info_idx = self.read_u16()?;
+                    let field_count = self.read_byte()? as usize;
 
                     // Get struct info from constants
-                    let (name, field_names) = match self.read_constant(struct_info_idx as usize) {
+                    let (name, field_names) = match self.read_constant(struct_info_idx as usize)? {
                         Constant::StructInfo { name, fields } => (name.clone(), fields.clone()),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1266,15 +1384,22 @@ impl VM {
                     self.push(Value::Struct(Rc::new(instance)))?;
                 }
                 OpCode::Enum => {
-                    let enum_info_idx = self.read_u16();
-                    let variant_idx = self.read_byte();
-                    let field_count = self.read_byte() as usize;
+                    let enum_info_idx = self.read_u16()?;
+                    let variant_idx = self.read_byte()?;
+                    let field_count = self.read_byte()? as usize;
 
                     // Get enum info from constants
-                    let (enum_name, variant_name) = match self.read_constant(enum_info_idx as usize)
+                    let (enum_name, variant_name) = match self.read_constant(enum_info_idx as usize)?
                     {
                         Constant::EnumInfo { name, variants } => {
-                            let variant = &variants[variant_idx as usize];
+                            let idx = variant_idx as usize;
+                            if idx >= variants.len() {
+                                return Err(RuntimeError::InternalError(format!(
+                                    "enum variant index out of bounds: index={} len={}",
+                                    idx, variants.len()
+                                )));
+                            }
+                            let variant = &variants[idx];
                             (name.clone(), variant.0.clone())
                         }
                         _ => {
@@ -1284,12 +1409,12 @@ impl VM {
                         }
                     };
 
-                    // Pop field values (in reverse order since they're on stack)
-                    let mut fields = Vec::with_capacity(field_count);
-                    for _ in 0..field_count {
-                        fields.push(self.pop()?);
+                    // Drain field values from stack (already in correct order)
+                    if self.stack.len() < field_count {
+                        return Err(RuntimeError::StackUnderflow);
                     }
-                    fields.reverse();
+                    let start = self.stack.len() - field_count;
+                    let fields: Vec<Value> = self.stack.drain(start..).collect();
 
                     let instance = EnumInstance {
                         enum_name,
@@ -1299,7 +1424,7 @@ impl VM {
                     self.push(Value::Enum(Rc::new(instance)))?;
                 }
                 OpCode::Range => {
-                    let inclusive = self.read_byte() != 0;
+                    let inclusive = self.read_byte()? != 0;
                     let end = match self.pop()? {
                         Value::Int(n) => n,
                         v => {
@@ -1321,7 +1446,7 @@ impl VM {
                     self.push(Value::Range(start, end, inclusive))?;
                 }
                 OpCode::GetField => {
-                    let index = self.read_byte() as usize;
+                    let index = self.read_byte()? as usize;
                     let value = self.pop()?;
                     let field =
                         match value {
@@ -1356,7 +1481,7 @@ impl VM {
                     self.push(field)?;
                 }
                 OpCode::SetField => {
-                    let index = self.read_byte() as usize;
+                    let index = self.read_byte()? as usize;
                     let value = self.pop()?;
                     let target = self.pop()?;
                     match target {
@@ -1382,9 +1507,9 @@ impl VM {
                 OpCode::GetFieldNamed => {
                     // Call site ID for inline caching (IP before reading operands)
                     let call_site =
-                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
-                    let field_name_idx = self.read_u16();
-                    let field_name = match self.read_constant(field_name_idx as usize) {
+                        CallSiteId::from_offset(self.current_frame()?.ip.saturating_sub(1));
+                    let field_name_idx = self.read_u16()?;
+                    let field_name = match self.read_constant(field_name_idx as usize)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1441,9 +1566,9 @@ impl VM {
                 OpCode::SetFieldNamed => {
                     // Call site ID for inline caching
                     let call_site =
-                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
-                    let field_name_idx = self.read_u16();
-                    let field_name = match self.read_constant(field_name_idx as usize) {
+                        CallSiteId::from_offset(self.current_frame()?.ip.saturating_sub(1));
+                    let field_name_idx = self.read_u16()?;
+                    let field_name = match self.read_constant(field_name_idx as usize)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1492,43 +1617,23 @@ impl VM {
                     let result = match (&target, &index) {
                         (Value::Array(arr), Value::Int(i)) => {
                             let arr = arr.borrow();
-                            let idx = if *i < 0 {
-                                (arr.len() as i64 + i) as usize
-                            } else {
-                                *i as usize
-                            };
-                            arr.get(idx)
-                                .cloned()
-                                .ok_or_else(|| RuntimeError::IndexOutOfBounds {
-                                    index: *i,
-                                    length: arr.len(),
-                                })?
+                            let idx = Self::resolve_index(*i, arr.len())?;
+                            arr[idx].clone()
                         }
                         (Value::Tuple(t), Value::Int(i)) => {
-                            let idx = if *i < 0 {
-                                (t.len() as i64 + i) as usize
-                            } else {
-                                *i as usize
-                            };
-                            t.get(idx)
-                                .cloned()
-                                .ok_or_else(|| RuntimeError::IndexOutOfBounds {
-                                    index: *i,
-                                    length: t.len(),
-                                })?
+                            let idx = Self::resolve_index(*i, t.len())?;
+                            t[idx].clone()
                         }
                         (Value::String(s), Value::Int(i)) => {
-                            let idx = if *i < 0 {
-                                (s.len() as i64 + i) as usize
-                            } else {
-                                *i as usize
-                            };
+                            // For strings, index by character (not byte)
+                            let char_count = s.chars().count();
+                            let idx = Self::resolve_index(*i, char_count)?;
                             s.chars()
                                 .nth(idx)
                                 .map(|c| Value::Int(c as i64))
-                                .ok_or_else(|| RuntimeError::IndexOutOfBounds {
+                                .ok_or(RuntimeError::IndexOutOfBounds {
                                     index: *i,
-                                    length: s.len(),
+                                    length: char_count,
                                 })?
                         }
                         _ => {
@@ -1547,17 +1652,7 @@ impl VM {
                     match (&target, &index) {
                         (Value::Array(arr), Value::Int(i)) => {
                             let mut arr = arr.borrow_mut();
-                            let idx = if *i < 0 {
-                                (arr.len() as i64 + i) as usize
-                            } else {
-                                *i as usize
-                            };
-                            if idx >= arr.len() {
-                                return Err(RuntimeError::IndexOutOfBounds {
-                                    index: *i,
-                                    length: arr.len(),
-                                });
-                            }
+                            let idx = Self::resolve_index(*i, arr.len())?;
                             arr[idx] = value;
                         }
                         _ => {
@@ -1572,7 +1667,7 @@ impl VM {
                 OpCode::Len => {
                     let value = self.pop()?;
                     let len = match &value {
-                        Value::String(s) => s.len() as i64,
+                        Value::String(s) => s.chars().count() as i64,
                         Value::Array(arr) => arr.borrow().len() as i64,
                         Value::Tuple(t) => t.len() as i64,
                         _ => {
@@ -1591,16 +1686,33 @@ impl VM {
                     match (&target, &start, &end) {
                         (Value::Array(arr), Value::Int(s), Value::Int(e)) => {
                             let arr = arr.borrow();
-                            let start = *s as usize;
-                            let end = (*e as usize).min(arr.len());
-                            let slice: Vec<Value> = arr[start..end].to_vec();
+                            let len = arr.len();
+                            // Clamp start and end to valid bounds
+                            let start = (*s).max(0) as usize;
+                            let end = (*e).max(0) as usize;
+                            let start = start.min(len);
+                            let end = end.min(len);
+                            // Handle start > end by returning empty slice
+                            let slice: Vec<Value> = if start <= end {
+                                arr[start..end].to_vec()
+                            } else {
+                                Vec::new()
+                            };
                             self.push(Value::Array(Rc::new(RefCell::new(slice))))?;
                         }
                         (Value::String(string), Value::Int(s), Value::Int(e)) => {
-                            let start = *s as usize;
-                            let end = (*e as usize).min(string.len());
-                            let slice: String =
-                                string.chars().skip(start).take(end - start).collect();
+                            let char_count = string.chars().count();
+                            // Clamp start and end to valid bounds
+                            let start = (*s).max(0) as usize;
+                            let end = (*e).max(0) as usize;
+                            let start = start.min(char_count);
+                            let end = end.min(char_count);
+                            // Handle start > end by returning empty string
+                            let slice: String = if start <= end {
+                                string.chars().skip(start).take(end - start).collect()
+                            } else {
+                                String::new()
+                            };
                             self.push(Value::String(Rc::new(slice)))?;
                         }
                         _ => {
@@ -1628,7 +1740,9 @@ impl VM {
                                 }
                             } else if e.variant == "None" || e.variant == "Err" {
                                 // None or Err -> return from function with the original value
-                                let frame = self.frames.pop().unwrap();
+                                let frame = self.frames.pop().ok_or_else(|| {
+                                    RuntimeError::InternalError("frame stack underflow on try".to_string())
+                                })?;
                                 self.close_upvalues(frame.stack_base);
                                 self.stack.truncate(frame.stack_base);
                                 if self.frames.is_empty() {
@@ -1648,10 +1762,10 @@ impl VM {
                 }
 
                 OpCode::MatchEnum => {
-                    let enum_name_idx = self.read_u16() as usize;
-                    let variant_name_idx = self.read_u16() as usize;
+                    let enum_name_idx = self.read_u16()? as usize;
+                    let variant_name_idx = self.read_u16()? as usize;
 
-                    let enum_name = match self.read_constant(enum_name_idx) {
+                    let enum_name = match self.read_constant(enum_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1660,7 +1774,7 @@ impl VM {
                         }
                     };
 
-                    let variant_name = match self.read_constant(variant_name_idx) {
+                    let variant_name = match self.read_constant(variant_name_idx)? {
                         Constant::String(s) => s.clone(),
                         _ => {
                             return Err(RuntimeError::InternalError(
@@ -1736,9 +1850,9 @@ impl VM {
 
                 // REFERENCES
                 OpCode::MakeRef => {
-                    let slot = self.read_u16() as usize;
-                    let mutable = self.read_byte() != 0;
-                    let base = self.current_frame().stack_base;
+                    let slot = self.read_u16()? as usize;
+                    let mutable = self.read_byte()? != 0;
+                    let base = self.current_frame()?.stack_base;
                     // Create a LocalRef that points to the absolute stack index
                     let abs_slot = base + slot;
                     self.push(Value::LocalRef(abs_slot, mutable))?;
@@ -1784,7 +1898,7 @@ impl VM {
 
                 // NATIVE/FFI
                 OpCode::NativeCall => {
-                    let _idx = self.read_u16();
+                    let _idx = self.read_u16()?;
                     self.push(Value::Unit)?;
                 }
 
@@ -1817,7 +1931,7 @@ impl VM {
     }
 
     fn constant_to_value(&self, idx: usize) -> Result<Value, RuntimeError> {
-        let constant = &self.current_frame().closure.proto.chunk.constants[idx];
+        let constant = &self.current_frame()?.closure.proto.chunk.constants[idx];
         Ok(match constant {
             Constant::Int(n) => Value::Int(*n),
             Constant::Float(n) => Value::Float(*n),

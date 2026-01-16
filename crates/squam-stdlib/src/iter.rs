@@ -1,5 +1,5 @@
 use crate::option::{none, some};
-use squam_vm::{RuntimeError, Value, VM};
+use squam_vm::{Closure, RuntimeError, Value, VM};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -194,31 +194,73 @@ fn iter_sort_by(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             drop(arr_borrowed);
 
             // Sort using closure as comparator: closure(a, b) returns negative if a < b, 0 if equal, positive if a > b
-            // We need to do this in a way that works with VM calls
-            // Simple approach: bubble sort (not efficient, but works with our constraints)
-            let len = result.len();
-            for i in 0..len {
-                for j in 0..len - 1 - i {
-                    let cmp_result = vm.call_closure_value(
-                        closure,
-                        vec![result[j].clone(), result[j + 1].clone()],
-                    )?;
-                    let should_swap = match cmp_result {
-                        Value::Int(n) => n > 0,
-                        Value::Bool(b) => b,
-                        _ => false,
-                    };
-                    if should_swap {
-                        result.swap(j, j + 1);
-                    }
-                }
-            }
+            // Using merge sort for O(n log n) performance with VM closure comparisons
+            merge_sort_with_closure(vm, &mut result, closure)?;
+
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
         _ => Err(RuntimeError::Custom(
             "sort_by: expected (array, closure)".to_string(),
         )),
     }
+}
+
+/// Merge sort implementation that uses VM closure for comparisons
+fn merge_sort_with_closure(
+    vm: &mut VM,
+    arr: &mut [Value],
+    closure: &Rc<Closure>,
+) -> Result<(), RuntimeError> {
+    let len = arr.len();
+    if len <= 1 {
+        return Ok(());
+    }
+
+    let mid = len / 2;
+    merge_sort_with_closure(vm, &mut arr[..mid], closure)?;
+    merge_sort_with_closure(vm, &mut arr[mid..], closure)?;
+
+    // Merge the two sorted halves
+    let left: Vec<Value> = arr[..mid].to_vec();
+    let right: Vec<Value> = arr[mid..].to_vec();
+
+    let mut i = 0;
+    let mut j = 0;
+    let mut k = 0;
+
+    while i < left.len() && j < right.len() {
+        let cmp_result = vm.call_closure_value(
+            closure,
+            vec![left[i].clone(), right[j].clone()],
+        )?;
+        let left_is_smaller_or_equal = match cmp_result {
+            Value::Int(n) => n <= 0,
+            Value::Bool(b) => !b,
+            _ => true,
+        };
+        if left_is_smaller_or_equal {
+            arr[k] = left[i].clone();
+            i += 1;
+        } else {
+            arr[k] = right[j].clone();
+            j += 1;
+        }
+        k += 1;
+    }
+
+    while i < left.len() {
+        arr[k] = left[i].clone();
+        i += 1;
+        k += 1;
+    }
+
+    while j < right.len() {
+        arr[k] = right[j].clone();
+        j += 1;
+        k += 1;
+    }
+
+    Ok(())
 }
 
 fn iter_group_by(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {

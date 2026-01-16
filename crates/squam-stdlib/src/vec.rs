@@ -19,6 +19,27 @@ fn value_cmp(a: &Value, b: &Value, descending: bool) -> Ordering {
     }
 }
 
+/// Safely resolve a potentially negative index to a usize.
+/// Returns None if the index is out of bounds.
+fn resolve_index(idx: i64, len: usize) -> Option<usize> {
+    if idx >= 0 {
+        let idx = idx as usize;
+        if idx < len {
+            Some(idx)
+        } else {
+            None
+        }
+    } else {
+        // Negative index: -1 is last element, -2 is second to last, etc.
+        let abs_idx = idx.unsigned_abs() as usize;
+        if abs_idx <= len {
+            Some(len - abs_idx)
+        } else {
+            None
+        }
+    }
+}
+
 pub fn register(vm: &mut VM) {
     // arr_len(arr: array) -> int
     vm.define_native("arr_len", 1, |args| match &args[0] {
@@ -58,24 +79,14 @@ pub fn register(vm: &mut VM) {
     vm.define_native("arr_get", 2, |args| match (&args[0], &args[1]) {
         (Value::Array(arr), Value::Int(idx)) => {
             let arr = arr.borrow();
-            let idx = if *idx < 0 {
-                (arr.len() as i64 + idx) as usize
-            } else {
-                *idx as usize
-            };
-            arr.get(idx)
-                .cloned()
-                .ok_or_else(|| format!("arr_get: index {} out of bounds", idx))
+            let resolved = resolve_index(*idx, arr.len())
+                .ok_or_else(|| format!("arr_get: index {} out of bounds (len {})", idx, arr.len()))?;
+            Ok(arr[resolved].clone())
         }
         (Value::Tuple(t), Value::Int(idx)) => {
-            let idx = if *idx < 0 {
-                (t.len() as i64 + idx) as usize
-            } else {
-                *idx as usize
-            };
-            t.get(idx)
-                .cloned()
-                .ok_or_else(|| format!("arr_get: index {} out of bounds", idx))
+            let resolved = resolve_index(*idx, t.len())
+                .ok_or_else(|| format!("arr_get: index {} out of bounds (len {})", idx, t.len()))?;
+            Ok(t[resolved].clone())
         }
         _ => Err("arr_get: expected (array, int)".to_string()),
     });
@@ -84,17 +95,10 @@ pub fn register(vm: &mut VM) {
     vm.define_native("arr_set", 3, |args| match (&args[0], &args[1]) {
         (Value::Array(arr), Value::Int(idx)) => {
             let mut arr = arr.borrow_mut();
-            let idx = if *idx < 0 {
-                (arr.len() as i64 + idx) as usize
-            } else {
-                *idx as usize
-            };
-            if idx < arr.len() {
-                arr[idx] = args[2].clone();
-                Ok(Value::Unit)
-            } else {
-                Err(format!("arr_set: index {} out of bounds", idx))
-            }
+            let resolved = resolve_index(*idx, arr.len())
+                .ok_or_else(|| format!("arr_set: index {} out of bounds (len {})", idx, arr.len()))?;
+            arr[resolved] = args[2].clone();
+            Ok(Value::Unit)
         }
         _ => Err("arr_set: expected (array, int, value)".to_string()),
     });
@@ -239,9 +243,22 @@ pub fn register(vm: &mut VM) {
 
     // arr_with_capacity(capacity: int) -> array
     vm.define_native("arr_with_capacity", 1, |args| match &args[0] {
-        Value::Int(cap) => Ok(Value::Array(Rc::new(RefCell::new(Vec::with_capacity(
-            *cap as usize,
-        ))))),
+        Value::Int(cap) => {
+            if *cap < 0 {
+                return Err("arr_with_capacity: capacity must be non-negative".to_string());
+            }
+            // Limit capacity to prevent OOM from unreasonable values
+            const MAX_CAPACITY: i64 = 10_000_000;
+            if *cap > MAX_CAPACITY {
+                return Err(format!(
+                    "arr_with_capacity: capacity {} exceeds maximum {}",
+                    cap, MAX_CAPACITY
+                ));
+            }
+            Ok(Value::Array(Rc::new(RefCell::new(Vec::with_capacity(
+                *cap as usize,
+            )))))
+        }
         other => Err(format!(
             "arr_with_capacity: expected int, got {}",
             other.type_name()
@@ -251,6 +268,17 @@ pub fn register(vm: &mut VM) {
     // arr_repeat(value: any, count: int) -> array
     vm.define_native("arr_repeat", 2, |args| match &args[1] {
         Value::Int(count) => {
+            if *count < 0 {
+                return Err("arr_repeat: count must be non-negative".to_string());
+            }
+            // Limit count to prevent OOM from unreasonable values
+            const MAX_COUNT: i64 = 10_000_000;
+            if *count > MAX_COUNT {
+                return Err(format!(
+                    "arr_repeat: count {} exceeds maximum {}",
+                    count, MAX_COUNT
+                ));
+            }
             let arr: Vec<Value> = (0..*count as usize).map(|_| args[0].clone()).collect();
             Ok(Value::Array(Rc::new(RefCell::new(arr))))
         }
@@ -277,17 +305,33 @@ pub fn register(vm: &mut VM) {
                     return Err("range_step: step cannot be zero".to_string());
                 }
                 let arr: Vec<Value> = if *step > 0 {
-                    (*start..*end)
-                        .step_by(*step as usize)
-                        .map(Value::Int)
-                        .collect()
+                    // Positive step: start to end (exclusive)
+                    if *start >= *end {
+                        Vec::new()
+                    } else {
+                        (*start..*end)
+                            .step_by(*step as usize)
+                            .map(Value::Int)
+                            .collect()
+                    }
                 } else {
-                    let step = (-step) as usize;
-                    (*end + 1..=*start)
-                        .rev()
-                        .step_by(step)
-                        .map(Value::Int)
-                        .collect()
+                    // Negative step: start down to end (exclusive)
+                    if *start <= *end {
+                        Vec::new()
+                    } else {
+                        // checked_neg returns None for i64::MIN (overflow)
+                        let abs_step = match step.checked_neg() {
+                            Some(s) => s as usize,
+                            None => return Err("range_step: step value too small (overflow)".to_string()),
+                        };
+                        // Use saturating_add to handle end == i64::MAX
+                        let end_inclusive = end.saturating_add(1);
+                        (end_inclusive..=*start)
+                            .rev()
+                            .step_by(abs_step)
+                            .map(Value::Int)
+                            .collect()
+                    }
                 };
                 Ok(Value::Array(Rc::new(RefCell::new(arr))))
             }
@@ -296,28 +340,39 @@ pub fn register(vm: &mut VM) {
     });
 
     // arr_insert(arr: array, index: int, value: any) -> ()
+    // Supports negative indices: -1 inserts before last element, etc.
     vm.define_native("arr_insert", 3, |args| match (&args[0], &args[1]) {
         (Value::Array(arr), Value::Int(idx)) => {
             let mut arr = arr.borrow_mut();
-            let idx = (*idx).max(0) as usize;
-            if idx > arr.len() {
-                return Err(format!("arr_insert: index {} out of bounds", idx));
+            let len = arr.len();
+            // For insert, valid range is 0..=len (can insert at end)
+            let resolved_idx = if *idx >= 0 {
+                let i = *idx as usize;
+                if i <= len { Some(i) } else { None }
+            } else {
+                let abs_idx = idx.unsigned_abs() as usize;
+                if abs_idx <= len { Some(len - abs_idx) } else { None }
+            };
+            match resolved_idx {
+                Some(i) => {
+                    arr.insert(i, args[2].clone());
+                    Ok(Value::Unit)
+                }
+                None => Err(format!("arr_insert: index {} out of bounds (length {})", idx, len)),
             }
-            arr.insert(idx, args[2].clone());
-            Ok(Value::Unit)
         }
         _ => Err("arr_insert: expected (array, int, value)".to_string()),
     });
 
     // arr_remove(arr: array, index: int) -> any
+    // Supports negative indices: -1 removes last element, -2 removes second to last, etc.
     vm.define_native("arr_remove", 2, |args| match (&args[0], &args[1]) {
         (Value::Array(arr), Value::Int(idx)) => {
             let mut arr = arr.borrow_mut();
-            let idx = (*idx).max(0) as usize;
-            if idx >= arr.len() {
-                return Err(format!("arr_remove: index {} out of bounds", idx));
+            match resolve_index(*idx, arr.len()) {
+                Some(i) => Ok(arr.remove(i)),
+                None => Err(format!("arr_remove: index {} out of bounds (length {})", idx, arr.len())),
             }
-            Ok(arr.remove(idx))
         }
         _ => Err("arr_remove: expected (array, int)".to_string()),
     });

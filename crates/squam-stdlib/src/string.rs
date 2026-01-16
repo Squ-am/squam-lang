@@ -1,10 +1,31 @@
 use squam_vm::{Value, VM};
 use std::rc::Rc;
 
+/// Resolve a potentially negative index to a valid usize index.
+/// Negative indices count from the end (-1 = last, -2 = second to last, etc.)
+fn resolve_string_index(idx: i64, len: usize) -> Option<usize> {
+    if idx >= 0 {
+        let idx = idx as usize;
+        if idx < len {
+            Some(idx)
+        } else {
+            None
+        }
+    } else {
+        let abs_idx = idx.unsigned_abs() as usize;
+        if abs_idx <= len {
+            Some(len - abs_idx)
+        } else {
+            None
+        }
+    }
+}
+
 pub fn register(vm: &mut VM) {
     // str_len(s: string) -> int
+    // Returns the number of characters (not bytes) in the string
     vm.define_native("str_len", 1, |args| match &args[0] {
-        Value::String(s) => Ok(Value::Int(s.len() as i64)),
+        Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
         other => Err(format!(
             "str_len: expected string, got {}",
             other.type_name()
@@ -116,21 +137,30 @@ pub fn register(vm: &mut VM) {
     });
 
     // str_index_of(s: string, needle: string) -> int
+    // Returns the character index (not byte index) of the first occurrence, or -1 if not found
     vm.define_native("str_index_of", 2, |args| match (&args[0], &args[1]) {
         (Value::String(s), Value::String(needle)) => match s.find(needle.as_str()) {
-            Some(idx) => Ok(Value::Int(idx as i64)),
+            Some(byte_idx) => {
+                // Convert byte index to character index
+                let char_idx = s[..byte_idx].chars().count();
+                Ok(Value::Int(char_idx as i64))
+            }
             None => Ok(Value::Int(-1)),
         },
         _ => Err("str_index_of: expected two strings".to_string()),
     });
 
     // str_char_at(s: string, index: int) -> int (char code)
+    // Supports negative indices: -1 = last char, -2 = second to last, etc.
     vm.define_native("str_char_at", 2, |args| match (&args[0], &args[1]) {
         (Value::String(s), Value::Int(idx)) => {
-            let idx = *idx as usize;
-            match s.chars().nth(idx) {
-                Some(c) => Ok(Value::Int(c as i64)),
-                None => Err(format!("str_char_at: index {} out of bounds", idx)),
+            let char_count = s.chars().count();
+            match resolve_string_index(*idx, char_count) {
+                Some(resolved_idx) => match s.chars().nth(resolved_idx) {
+                    Some(c) => Ok(Value::Int(c as i64)),
+                    None => Err(format!("str_char_at: index {} out of bounds (length {})", idx, char_count)),
+                },
+                None => Err(format!("str_char_at: index {} out of bounds (length {})", idx, char_count)),
             }
         }
         _ => Err("str_char_at: expected (string, int)".to_string()),
