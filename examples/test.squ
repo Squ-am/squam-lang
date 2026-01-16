@@ -5,27 +5,16 @@ struct Point {
     y: i64,
 }
 
-enum Color {
-    Red,
-    Green,
-    Blue,
-}
-
-enum Option {
-    None,
-    Some(i64),
-}
-
 impl Point {
     fn new(x: i64, y: i64) -> Point {
         Point { x, y }
     }
 
-    fn sum(&self) -> i64 {
+    fn sum(self) -> i64 {
         self.x + self.y
     }
 
-    fn scale(&self, factor: i64) -> Point {
+    fn scale(self, factor: i64) -> Point {
         Point { x: self.x * factor, y: self.y * factor }
     }
 }
@@ -62,23 +51,10 @@ fn main() {
     p.x = 999;
     println(p.x);
 
-    println("=== Enums ===");
-
-    // Unit variants
-    let c = Color::Red;
-    println(c);
-
-    // Tuple variants
-    let opt = Option::Some(42);
-    println(opt);
-
-    let none = Option::None;
-    println(none);
-
     println("=== Methods ===");
 
-    // Method call
-    let p3 = Point { x: 3, y: 4 };
+    // Static method call
+    let p3 = Point::new(3, 4);
     println(p3.sum());
 
     // Method that returns struct
@@ -87,14 +63,6 @@ fn main() {
     println(p4.y);
 
     println("=== Match ===");
-
-    // Match on enum - unit variant
-    let c2 = Color::Green;
-    match c2 {
-        Color::Red => println("red"),
-        Color::Green => println("green"),
-        Color::Blue => println("blue"),
-    }
 
     // Match on literal
     let n = 42;
@@ -109,16 +77,6 @@ fn main() {
     match num {
         _ => println("matched wildcard"),
     }
-
-    println("=== Try Operator ===");
-
-    // Test ? with Some
-    let result = test_try_some();
-    println(result);
-
-    // Test ? with None
-    let result2 = test_try_none();
-    println(result2);
 
     println("=== Closures ===");
 
@@ -148,16 +106,4 @@ fn main() {
     println(b);
 
     println("=== Complete ===");
-}
-
-fn test_try_some() -> Option {
-    let val = Option::Some(42);
-    let unwrapped = val?;
-    Option::Some(unwrapped + 1)
-}
-
-fn test_try_none() -> Option {
-    let val = Option::None;
-    let unwrapped = val?;  // Should return None here
-    Option::Some(unwrapped + 1)  // This shouldn't run
 }

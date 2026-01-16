@@ -4,8 +4,8 @@ use squam_parser::ast::*;
 
 use crate::context::TypeContext;
 use crate::scope::{SymbolTable, TypeNamespace, FunctionNamespace, TraitNamespace, Binding, BindingKind, ScopeKind, FunctionSig, TypeDef, TypeDefKind, GenericParamInfo, TraitDef as ScopeTraitDef, TraitMethodSig, AssociatedTypeDef, ImplDef, ImplMethodSig};
-use crate::types::{TypeId, Ty, InferVar, GenericVar};
-use crate::TypeAnnotations;
+use crate::types::{TypeId, Ty, InferVar, GenericVar, VariantFields};
+use crate::{TypeAnnotations, InstantiationKind};
 
 /// Type checking errors.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -194,6 +194,9 @@ impl TypeChecker {
             ("char", TypeId::CHAR),
             ("str", TypeId::STR),
             ("String", TypeId::STRING),
+            // Common aliases
+            ("int", TypeId::I64),
+            ("float", TypeId::F64),
         ];
 
         for (name, ty) in primitives {
@@ -205,6 +208,79 @@ impl TypeChecker {
                 is_public: true,
             });
         }
+
+        // Register common stdlib functions
+        // These use ANY type for flexibility since stdlib is dynamically typed
+        self.register_extern_function("println", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("print", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("eprintln", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("eprint", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("dbg", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("debug", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("debug_print", vec![TypeId::ANY], TypeId::UNIT);
+
+        // Array/string operations
+        self.register_extern_function("len", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("sum", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("push", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("pop", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("first", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("last", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("reverse", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("sort", vec![TypeId::ANY], TypeId::ANY);
+
+        // String operations
+        self.register_extern_function("str_len", vec![TypeId::STRING], TypeId::I64);
+        self.register_extern_function("to_string", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("to_uppercase", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("to_lowercase", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("trim", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("split", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("join", vec![TypeId::ANY, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("contains", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("starts_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("ends_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("replace", vec![TypeId::STRING, TypeId::STRING, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("substring", vec![TypeId::STRING, TypeId::I64, TypeId::I64], TypeId::STRING);
+        self.register_extern_function("char_at", vec![TypeId::STRING, TypeId::I64], TypeId::STRING);
+        self.register_extern_function("parse_int", vec![TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("parse_float", vec![TypeId::STRING], TypeId::ANY);
+
+        // Math operations
+        self.register_extern_function("abs", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("min", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("max", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("clamp", vec![TypeId::ANY, TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("sqrt", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("pow", vec![TypeId::F64, TypeId::F64], TypeId::F64);
+        self.register_extern_function("floor", vec![TypeId::F64], TypeId::I64);
+        self.register_extern_function("ceil", vec![TypeId::F64], TypeId::I64);
+        self.register_extern_function("round", vec![TypeId::F64], TypeId::I64);
+        self.register_extern_function("sin", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("cos", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("tan", vec![TypeId::F64], TypeId::F64);
+
+        // Type checking
+        self.register_extern_function("typeof", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("is_int", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_float", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_string", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_bool", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_array", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_function", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_unit", vec![TypeId::ANY], TypeId::BOOL);
+
+        // I/O
+        self.register_extern_function("read_line", vec![], TypeId::STRING);
+        self.register_extern_function("input", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("read_file", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("write_file", vec![TypeId::STRING, TypeId::STRING], TypeId::UNIT);
+        self.register_extern_function("file_exists", vec![TypeId::STRING], TypeId::BOOL);
+
+        // Control flow
+        self.register_extern_function("assert", vec![TypeId::BOOL], TypeId::UNIT);
+        self.register_extern_function("assert_eq", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("panic", vec![TypeId::STRING], TypeId::NEVER);
     }
 
     /// Get accumulated errors.
@@ -1679,13 +1755,35 @@ impl TypeChecker {
             ExprKind::Struct { path, fields, rest } => {
                 // Resolve the struct type from the path
                 let struct_ty = if path.segments.len() == 1 {
-                    let name = &path.segments[0].ident.name;
+                    let segment = &path.segments[0];
+                    let name = &segment.ident.name;
+
+                    // Extract type names for monomorphization (before borrowing self.types)
+                    let explicit_type_arg_names: Option<Vec<String>> = segment.args.as_ref().map(|args| {
+                        args.args.iter().filter_map(|arg| {
+                            match arg {
+                                GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
+                                GenericArg::Const(_) => None,
+                            }
+                        }).collect()
+                    });
+
+                    let name_str = name.to_string();
                     if let Some(def) = self.types.lookup(name) {
+                        // Record generic struct instantiation if explicit type args provided
+                        if let Some(type_arg_names) = explicit_type_arg_names {
+                            self.annotations.record_instantiation(
+                                name_str,
+                                InstantiationKind::Struct,
+                                type_arg_names,
+                                expr.span.start,
+                            );
+                        }
                         def.ty
                     } else {
                         self.error(TypeError::UndefinedType {
-                            name: name.to_string(),
-                            span: path.segments[0].ident.span,
+                            name: name_str,
+                            span: segment.ident.span,
                         });
                         self.ctx.error()
                     }
@@ -1760,6 +1858,14 @@ impl TypeChecker {
                             return self.ctx.error();
                         }
 
+                        // Extract type names for monomorphization
+                        let type_arg_names: Vec<String> = args.args.iter().filter_map(|arg| {
+                            match arg {
+                                GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
+                                GenericArg::Const(_) => None,
+                            }
+                        }).collect();
+
                         // Resolve explicit type arguments
                         let type_args: Vec<TypeId> = args.args.iter().map(|arg| {
                             match arg {
@@ -1784,6 +1890,14 @@ impl TypeChecker {
                             .map(|&p| self.ctx.substitute(p, &substitutions))
                             .collect();
                         let return_type = self.ctx.substitute(sig.return_type, &substitutions);
+
+                        // Record this generic function instantiation for monomorphization
+                        self.annotations.record_instantiation(
+                            name.to_string(),
+                            InstantiationKind::Function,
+                            type_arg_names,
+                            span.start,
+                        );
 
                         return self.ctx.function(params, return_type);
                     } else {
@@ -1817,8 +1931,41 @@ impl TypeChecker {
                 span,
             });
             self.ctx.error()
+        } else if path.segments.len() == 2 {
+            // Two-segment paths (e.g., Counter::new)
+            let type_name = &path.segments[0].ident.name;
+            let method_name = &path.segments[1].ident.name;
+
+            // Look up the type
+            if let Some(type_def) = self.types.lookup(type_name) {
+                let type_id = type_def.ty;
+
+                // Look up the static method on this type
+                let qualified_name: std::sync::Arc<str> = format!("{}::{}", type_name, method_name).into();
+                if let Some(sig) = self.functions.lookup(&qualified_name).cloned() {
+                    // Found the static method - return its function type
+                    return self.ctx.function(sig.params.clone(), sig.return_type);
+                }
+
+                // Also try lookup_method (for methods registered via impl blocks)
+                if let Some((method_sig, _)) = self.traits.lookup_method(type_id, method_name) {
+                    return self.ctx.function(method_sig.params.clone(), method_sig.return_type);
+                }
+
+                self.error(TypeError::Custom(
+                    format!("no static method `{}` found for type `{}`", method_name, type_name),
+                    span,
+                ));
+                self.ctx.error()
+            } else {
+                self.error(TypeError::UndefinedType {
+                    name: type_name.to_string(),
+                    span: path.segments[0].ident.span,
+                });
+                self.ctx.error()
+            }
         } else {
-            // Multi-segment paths (e.g., Foo::bar)
+            // More than 2 segments - not yet supported
             self.ctx.fresh_infer()
         }
     }
@@ -1826,6 +1973,14 @@ impl TypeChecker {
     // ---
     // Pattern checking
     // ---
+
+    /// Extract variant name from a TupleStruct pattern path.
+    /// For `Some(x)` returns "Some", for `Option::Some(x)` returns "Some"
+    fn extract_variant_name<'a>(&self, path: &'a TypePath) -> &'a str {
+        &path.segments.last()
+            .expect("TupleStruct path must have at least one segment")
+            .ident.name
+    }
 
     /// Check a pattern, returning its type.
     fn check_pattern(&mut self, pattern: &Pattern, expected: TypeId) -> TypeId {
@@ -1878,7 +2033,49 @@ impl TypeChecker {
 
             PatternKind::Path(_) => expected,
 
-            PatternKind::TupleStruct { .. } => expected,
+            PatternKind::TupleStruct { path, fields } => {
+                let resolved = self.resolve(expected);
+
+                // Handle plain enum or Applied (generic) enum
+                let (enum_type, type_args) = match self.ctx.get(resolved).clone() {
+                    Ty::Enum(e) => (Some(e), Vec::new()),
+                    Ty::Applied { base, args } => {
+                        match self.ctx.get(base).clone() {
+                            Ty::Enum(e) => (Some(e), args),
+                            _ => (None, Vec::new()),
+                        }
+                    }
+                    _ => (None, Vec::new()),
+                };
+
+                if let Some(enum_type) = enum_type {
+                    let variant_name = self.extract_variant_name(path);
+
+                    if let Some(variant) = enum_type.variants.iter()
+                        .find(|v| v.name.as_ref() == variant_name)
+                    {
+                        if let VariantFields::Tuple(field_tys) = &variant.fields {
+                            // Build generic substitutions
+                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type.generic_params
+                                .iter()
+                                .zip(type_args.iter())
+                                .map(|(gp, &arg)| (gp.var, arg))
+                                .collect();
+
+                            // Check each field pattern with actual type
+                            for (pat, &field_ty) in fields.iter().zip(field_tys.iter()) {
+                                let concrete_ty = if substitutions.is_empty() {
+                                    field_ty
+                                } else {
+                                    self.ctx.substitute(field_ty, &substitutions)
+                                };
+                                self.check_pattern(pat, concrete_ty);
+                            }
+                        }
+                    }
+                }
+                expected
+            }
 
             PatternKind::Struct { .. } => expected,
 
@@ -1950,10 +2147,52 @@ impl TypeChecker {
                 }
             }
 
-            PatternKind::TupleStruct { fields, .. } => {
-                for (i, pat) in fields.iter().enumerate() {
+            PatternKind::TupleStruct { path, fields } => {
+                let resolved = self.resolve(ty);
+
+                // Handle plain enum or Applied (generic) enum
+                let (enum_type, type_args) = match self.ctx.get(resolved).clone() {
+                    Ty::Enum(e) => (Some(e), Vec::new()),
+                    Ty::Applied { base, args } => {
+                        match self.ctx.get(base).clone() {
+                            Ty::Enum(e) => (Some(e), args),
+                            _ => (None, Vec::new()),
+                        }
+                    }
+                    _ => (None, Vec::new()),
+                };
+
+                if let Some(enum_type) = enum_type {
+                    let variant_name = self.extract_variant_name(path);
+
+                    if let Some(variant) = enum_type.variants.iter()
+                        .find(|v| v.name.as_ref() == variant_name)
+                    {
+                        if let VariantFields::Tuple(field_tys) = &variant.fields {
+                            // Build generic substitutions
+                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type.generic_params
+                                .iter()
+                                .zip(type_args.iter())
+                                .map(|(gp, &arg)| (gp.var, arg))
+                                .collect();
+
+                            // Bind each field with actual type
+                            for (pat, &field_ty) in fields.iter().zip(field_tys.iter()) {
+                                let concrete_ty = if substitutions.is_empty() {
+                                    field_ty
+                                } else {
+                                    self.ctx.substitute(field_ty, &substitutions)
+                                };
+                                self.bind_pattern(pat, concrete_ty, kind);
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                // Fallback: use fresh_infer (maintains current behavior for edge cases)
+                for pat in fields.iter() {
                     let field_ty = self.ctx.fresh_infer();
-                    let _ = i;
                     self.bind_pattern(pat, field_ty, kind);
                 }
             }
@@ -1975,6 +2214,48 @@ impl TypeChecker {
     // ---
     // Type resolution
     // ---
+
+    /// Extract a type name from an AST type (for monomorphization).
+    /// Returns the string representation of the type.
+    fn type_name_from_ast(&self, ty: &Type) -> String {
+        match &ty.kind {
+            TypeKind::Path(path) => {
+                if path.segments.len() == 1 {
+                    path.segments[0].ident.name.to_string()
+                } else {
+                    // Multi-segment path like Foo::Bar
+                    path.segments.iter()
+                        .map(|s| s.ident.name.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::")
+                }
+            }
+            TypeKind::Reference { mutable, inner } => {
+                let prefix = if *mutable { "&mut " } else { "&" };
+                format!("{}{}", prefix, self.type_name_from_ast(inner))
+            }
+            TypeKind::Array { element, .. } => {
+                format!("[{}]", self.type_name_from_ast(element))
+            }
+            TypeKind::Slice { element } => {
+                format!("[{}]", self.type_name_from_ast(element))
+            }
+            TypeKind::Tuple(elements) => {
+                let names: Vec<_> = elements.iter().map(|e| self.type_name_from_ast(e)).collect();
+                format!("({})", names.join(", "))
+            }
+            TypeKind::Function { params, return_type } => {
+                let param_names: Vec<_> = params.iter().map(|p| self.type_name_from_ast(p)).collect();
+                match return_type {
+                    Some(ret) => format!("fn({}) -> {}", param_names.join(", "), self.type_name_from_ast(ret)),
+                    None => format!("fn({})", param_names.join(", ")),
+                }
+            }
+            TypeKind::Infer => "_".to_string(),
+            TypeKind::Never => "!".to_string(),
+            TypeKind::Unit => "()".to_string(),
+        }
+    }
 
     /// Resolve an AST type to a TypeId.
     pub fn resolve_ast_type(&mut self, ty: &Type) -> TypeId {

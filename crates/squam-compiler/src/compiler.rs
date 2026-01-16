@@ -86,6 +86,23 @@ struct TraitTypeInfo {
     methods: Vec<TraitMethodInfo>,
 }
 
+/// The kind of generic definition.
+#[derive(Debug, Clone)]
+enum GenericDefKind {
+    Function(FunctionDef),
+    Struct(StructDef),
+    Enum(EnumDef),
+}
+
+/// A stored generic definition awaiting monomorphization.
+#[derive(Debug, Clone)]
+struct GenericDef {
+    /// What kind of generic this is
+    kind: GenericDefKind,
+    /// The generic parameter names (e.g., ["T", "U"])
+    type_params: Vec<String>,
+}
+
 /// Compiler state for a single function.
 struct CompilerState {
     chunk: Chunk,
@@ -131,6 +148,14 @@ pub struct Compiler {
     module_imports: HashMap<String, String>,
     /// Type annotations from type checking (for optimized codegen)
     type_annotations: Option<TypeAnnotations>,
+
+    // === Monomorphization support ===
+    /// Generic definitions awaiting monomorphization
+    generic_defs: HashMap<String, GenericDef>,
+    /// Already-compiled instantiations: mangled_key -> mangled_name
+    compiled_instantiations: HashMap<String, String>,
+    /// Current type substitution during monomorphization (T -> "i64")
+    current_substitution: HashMap<String, String>,
 }
 
 impl Compiler {
@@ -146,6 +171,9 @@ impl Compiler {
             current_module_path: Vec::new(),
             module_imports: HashMap::new(),
             type_annotations: None,
+            generic_defs: HashMap::new(),
+            compiled_instantiations: HashMap::new(),
+            current_substitution: HashMap::new(),
         }
     }
 
@@ -161,6 +189,9 @@ impl Compiler {
             current_module_path: Vec::new(),
             module_imports: HashMap::new(),
             type_annotations: Some(annotations),
+            generic_defs: HashMap::new(),
+            compiled_instantiations: HashMap::new(),
+            current_substitution: HashMap::new(),
         }
     }
 
@@ -188,6 +219,81 @@ impl Compiler {
         }
 
         current
+    }
+
+    // === Monomorphization helpers ===
+
+    /// Resolve a type name through the current substitution (for generics).
+    /// If the type is a generic parameter like "T", returns the concrete type.
+    /// Otherwise returns the original type name.
+    fn resolve_type_param(&self, type_name: &str) -> String {
+        self.current_substitution
+            .get(type_name)
+            .cloned()
+            .unwrap_or_else(|| type_name.to_string())
+    }
+
+    /// Generate a mangled name for a generic instantiation.
+    /// e.g., "identity" with ["i64"] -> "identity$i64"
+    /// e.g., "Pair" with ["i64", "String"] -> "Pair$i64$String"
+    fn mangle_name(&self, base_name: &str, type_args: &[String]) -> String {
+        if type_args.is_empty() {
+            base_name.to_string()
+        } else {
+            format!("{}${}", base_name, type_args.join("$"))
+        }
+    }
+
+    /// Generate a unique key for an instantiation (for deduplication).
+    fn instantiation_key(&self, name: &str, type_args: &[String]) -> String {
+        self.mangle_name(name, type_args)
+    }
+
+    /// Extract generic parameter names from a Generics AST node.
+    fn extract_type_params(generics: &Option<Generics>) -> Vec<String> {
+        generics.as_ref().map_or_else(Vec::new, |g| {
+            g.params.iter().filter_map(|p| {
+                match p {
+                    GenericParam::Type(tp) => Some(tp.name.name.to_string()),
+                    GenericParam::Const(_) => None, // Skip const params for now
+                }
+            }).collect()
+        })
+    }
+
+    /// Check if an item has generics.
+    fn has_generics(generics: &Option<Generics>) -> bool {
+        generics.as_ref().map_or(false, |g| !g.params.is_empty())
+    }
+
+    /// Store a generic function definition for later monomorphization.
+    fn store_generic_function(&mut self, func: &FunctionDef) {
+        let name = self.qualified_name(&func.name.name);
+        let type_params = Self::extract_type_params(&func.generics);
+        self.generic_defs.insert(name, GenericDef {
+            kind: GenericDefKind::Function(func.clone()),
+            type_params,
+        });
+    }
+
+    /// Store a generic struct definition for later monomorphization.
+    fn store_generic_struct(&mut self, s: &StructDef) {
+        let name = self.qualified_name(&s.name.name);
+        let type_params = Self::extract_type_params(&s.generics);
+        self.generic_defs.insert(name, GenericDef {
+            kind: GenericDefKind::Struct(s.clone()),
+            type_params,
+        });
+    }
+
+    /// Store a generic enum definition for later monomorphization.
+    fn store_generic_enum(&mut self, e: &EnumDef) {
+        let name = self.qualified_name(&e.name.name);
+        let type_params = Self::extract_type_params(&e.generics);
+        self.generic_defs.insert(name, GenericDef {
+            kind: GenericDefKind::Enum(e.clone()),
+            type_params,
+        });
     }
 
     /// Get the current compiler state.
@@ -513,9 +619,13 @@ impl Compiler {
     pub fn compile_module(&mut self, module: &Module) -> Result<FunctionProto, CompileError> {
         self.states.push(CompilerState::new(Some("main".to_string()), 0));
 
+        // Pass 1: Collect generic definitions, compile non-generic items
         for item in &module.items {
-            self.compile_item(item)?;
+            self.compile_item_pass1(item)?;
         }
+
+        // Pass 2: Monomorphize based on TypeAnnotations
+        self.monomorphize_instantiations()?;
 
         self.emit(OpCode::Unit);
         self.emit(OpCode::Return);
@@ -531,6 +641,161 @@ impl Compiler {
         })
     }
 
+    /// Pass 1: Collect generic definitions, compile non-generic items.
+    fn compile_item_pass1(&mut self, item: &Item) -> Result<(), CompileError> {
+        match item {
+            Item::Function(func) => {
+                if Self::has_generics(&func.generics) {
+                    self.store_generic_function(func);
+                    Ok(())
+                } else {
+                    self.compile_function_def(func)
+                }
+            }
+            Item::Struct(s) => {
+                if Self::has_generics(&s.generics) {
+                    self.store_generic_struct(s);
+                    Ok(())
+                } else {
+                    self.compile_struct_def(s)
+                }
+            }
+            Item::Enum(e) => {
+                if Self::has_generics(&e.generics) {
+                    self.store_generic_enum(e);
+                    Ok(())
+                } else {
+                    self.compile_enum_def(e)
+                }
+            }
+            Item::Const(c) => self.compile_const_def(c),
+            Item::Impl(impl_block) => self.compile_impl_block(impl_block),
+            Item::Trait(trait_def) => self.compile_trait_def(trait_def),
+            Item::Mod(mod_decl) => self.compile_mod_decl(mod_decl),
+            Item::Use(use_decl) => self.compile_use_decl(use_decl),
+            Item::TypeAlias(alias) => self.compile_type_alias(alias),
+        }
+    }
+
+    /// Pass 2: Monomorphize all instantiations recorded by the type checker.
+    fn monomorphize_instantiations(&mut self) -> Result<(), CompileError> {
+        // Get instantiations from type annotations
+        let instantiations = match &self.type_annotations {
+            Some(ann) => ann.instantiations.clone(),
+            None => return Ok(()), // No type annotations, nothing to monomorphize
+        };
+
+        for inst in instantiations {
+            // type_args is already Vec<String> from the type checker
+            let key = self.instantiation_key(&inst.name, &inst.type_args);
+
+            // Skip if already compiled
+            if self.compiled_instantiations.contains_key(&key) {
+                continue;
+            }
+
+            // Find the generic definition and monomorphize
+            if let Some(def) = self.generic_defs.get(&inst.name).cloned() {
+                match &def.kind {
+                    GenericDefKind::Function(func) => {
+                        self.monomorphize_function(&inst.name, func, &def.type_params, &inst.type_args)?;
+                    }
+                    GenericDefKind::Struct(s) => {
+                        self.monomorphize_struct(&inst.name, s, &def.type_params, &inst.type_args)?;
+                    }
+                    GenericDefKind::Enum(e) => {
+                        self.monomorphize_enum(&inst.name, e, &def.type_params, &inst.type_args)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Monomorphize a generic function with specific type arguments.
+    fn monomorphize_function(
+        &mut self,
+        _base_name: &str,
+        func: &FunctionDef,
+        type_params: &[String],
+        type_args: &[String],
+    ) -> Result<(), CompileError> {
+        // Build substitution: T -> "i64", U -> "String", etc.
+        self.current_substitution = type_params.iter()
+            .zip(type_args.iter())
+            .map(|(p, a)| (p.clone(), a.clone()))
+            .collect();
+
+        // Generate mangled name
+        let mangled_name = self.mangle_name(&func.name.name, type_args);
+
+        // Compile the function with the mangled name
+        self.compile_function_def_with_name(func, &mangled_name)?;
+
+        // Record that we've compiled this instantiation
+        let key = self.instantiation_key(&func.name.name, type_args);
+        self.compiled_instantiations.insert(key, mangled_name);
+
+        // Clear substitution
+        self.current_substitution.clear();
+
+        Ok(())
+    }
+
+    /// Monomorphize a generic struct with specific type arguments.
+    fn monomorphize_struct(
+        &mut self,
+        _base_name: &str,
+        s: &StructDef,
+        type_params: &[String],
+        type_args: &[String],
+    ) -> Result<(), CompileError> {
+        // Build substitution
+        self.current_substitution = type_params.iter()
+            .zip(type_args.iter())
+            .map(|(p, a)| (p.clone(), a.clone()))
+            .collect();
+
+        // Generate mangled name and compile struct with that name
+        let mangled_name = self.mangle_name(&s.name.name, type_args);
+        self.compile_struct_def_with_name(s, &mangled_name)?;
+
+        // Record instantiation
+        let key = self.instantiation_key(&s.name.name, type_args);
+        self.compiled_instantiations.insert(key, mangled_name);
+
+        self.current_substitution.clear();
+        Ok(())
+    }
+
+    /// Monomorphize a generic enum with specific type arguments.
+    fn monomorphize_enum(
+        &mut self,
+        _base_name: &str,
+        e: &EnumDef,
+        type_params: &[String],
+        type_args: &[String],
+    ) -> Result<(), CompileError> {
+        // Build substitution
+        self.current_substitution = type_params.iter()
+            .zip(type_args.iter())
+            .map(|(p, a)| (p.clone(), a.clone()))
+            .collect();
+
+        // Generate mangled name and compile enum with that name
+        let mangled_name = self.mangle_name(&e.name.name, type_args);
+        self.compile_enum_def_with_name(e, &mangled_name)?;
+
+        // Record instantiation
+        let key = self.instantiation_key(&e.name.name, type_args);
+        self.compiled_instantiations.insert(key, mangled_name);
+
+        self.current_substitution.clear();
+        Ok(())
+    }
+
+    // Legacy compile_item for backwards compatibility (non-two-pass scenarios)
     fn compile_item(&mut self, item: &Item) -> Result<(), CompileError> {
         match item {
             Item::Function(func) => self.compile_function_def(func),
@@ -647,6 +912,16 @@ impl Compiler {
 
     fn compile_struct_def(&mut self, struct_def: &StructDef) -> Result<(), CompileError> {
         let name = self.qualified_name(&struct_def.name.name);
+        self.compile_struct_def_impl(struct_def, &name)
+    }
+
+    /// Compile a struct with a custom name (for monomorphization).
+    fn compile_struct_def_with_name(&mut self, struct_def: &StructDef, name: &str) -> Result<(), CompileError> {
+        self.compile_struct_def_impl(struct_def, name)
+    }
+
+    /// Internal implementation for struct compilation.
+    fn compile_struct_def_impl(&mut self, struct_def: &StructDef, name: &str) -> Result<(), CompileError> {
         let fields = match &struct_def.fields {
             StructFields::Named(fields) => {
                 fields.iter().map(|f| f.name.name.to_string()).collect()
@@ -657,12 +932,22 @@ impl Compiler {
             }
             StructFields::Unit => Vec::new(),
         };
-        self.struct_types.insert(name, StructTypeInfo { fields });
+        self.struct_types.insert(name.to_string(), StructTypeInfo { fields });
         Ok(())
     }
 
     fn compile_enum_def(&mut self, enum_def: &EnumDef) -> Result<(), CompileError> {
         let name = self.qualified_name(&enum_def.name.name);
+        self.compile_enum_def_impl(enum_def, &name)
+    }
+
+    /// Compile an enum with a custom name (for monomorphization).
+    fn compile_enum_def_with_name(&mut self, enum_def: &EnumDef, name: &str) -> Result<(), CompileError> {
+        self.compile_enum_def_impl(enum_def, name)
+    }
+
+    /// Internal implementation for enum compilation.
+    fn compile_enum_def_impl(&mut self, enum_def: &EnumDef, name: &str) -> Result<(), CompileError> {
         let mut variants: HashMap<String, (u8, usize)> = HashMap::new();
         let mut variants_ordered: Vec<(String, usize)> = Vec::new();
 
@@ -677,7 +962,7 @@ impl Compiler {
             variants_ordered.push((variant_name, field_count));
         }
 
-        self.enum_types.insert(name, EnumTypeInfo { variants, variants_ordered });
+        self.enum_types.insert(name.to_string(), EnumTypeInfo { variants, variants_ordered });
         Ok(())
     }
 
@@ -931,6 +1216,76 @@ impl Compiler {
         // Store in global with qualified name
         let qualified = self.qualified_name(&func.name.name);
         let name_idx = self.chunk().add_constant(Constant::String(qualified));
+        self.emit(OpCode::StoreGlobal);
+        self.emit_u16(name_idx);
+
+        Ok(())
+    }
+
+    /// Compile a function with a custom name (for monomorphization).
+    fn compile_function_def_with_name(&mut self, func: &FunctionDef, name: &str) -> Result<(), CompileError> {
+        self.current_line = func.span.start;
+
+        // Calculate min_arity (params without defaults)
+        let min_arity = func.params.iter()
+            .take_while(|p| p.default.is_none())
+            .count() as u8;
+
+        // Compile the function body in a new state with the custom name
+        self.states.push(CompilerState::new(
+            Some(name.to_string()),
+            func.params.len() as u8,
+        ));
+
+        self.begin_scope();
+
+        // Bind parameters
+        for param in &func.params {
+            self.compile_pattern_binding(&param.pattern, true)?;
+        }
+
+        // Compile body
+        self.compile_block(&func.body)?;
+
+        // Implicit return of last expression or unit
+        self.emit(OpCode::Return);
+
+        self.end_scope();
+
+        // Compile default values as constants
+        let mut defaults = Vec::new();
+        for param in &func.params {
+            if let Some(default_expr) = &param.default {
+                let const_idx = self.compile_default_value(default_expr)?;
+                defaults.push(const_idx);
+            }
+        }
+
+        let func_state = self.states.pop().unwrap();
+        let upvalues = func_state.upvalues.clone();
+        let proto = FunctionProto {
+            name: func_state.function_name,
+            arity: func_state.arity,
+            min_arity,
+            chunk: func_state.chunk,
+            upvalues: func_state.upvalues,
+            defaults,
+        };
+
+        // Store the function as a constant and define it
+        let idx = self.chunk().add_constant(Constant::Function(Box::new(proto)));
+
+        // Emit closure creation with upvalue info
+        self.emit(OpCode::Closure);
+        self.emit_u16(idx);
+        self.emit_byte(upvalues.len() as u8);
+        for uv in &upvalues {
+            self.emit_byte(if uv.is_local { 1 } else { 0 });
+            self.emit_byte(uv.index);
+        }
+
+        // Store in global with the mangled name
+        let name_idx = self.chunk().add_constant(Constant::String(name.to_string()));
         self.emit(OpCode::StoreGlobal);
         self.emit_u16(name_idx);
 

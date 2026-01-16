@@ -71,6 +71,10 @@ pub struct VM {
     pub globals: HashMap<String, Value>,
     /// Methods table: type_name -> method_name -> closure
     methods: HashMap<String, HashMap<String, Rc<Closure>>>,
+    /// Indexed method storage for inline cache
+    method_slots: Vec<Rc<Closure>>,
+    /// Map (type_name, method_name) -> slot index
+    method_slot_lookup: HashMap<(String, String), usize>,
     /// Open upvalues (for closures)
     open_upvalues: Vec<Rc<RefCell<Upvalue>>>,
     /// Maximum stack size (prevent runaway recursion)
@@ -102,6 +106,8 @@ impl VM {
             frames: Vec::with_capacity(64),
             globals: HashMap::new(),
             methods: HashMap::new(),
+            method_slots: Vec::new(),
+            method_slot_lookup: HashMap::new(),
             open_upvalues: Vec::new(),
             max_stack_size: 65536,
             max_call_depth: 1000,
@@ -997,6 +1003,9 @@ impl VM {
                 }
 
                 OpCode::CallMethod => {
+                    // Capture call site for inline caching (before reading operands)
+                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+
                     let method_name_idx = self.read_u16() as usize;
                     let arg_count = self.read_byte();
 
@@ -1016,15 +1025,24 @@ impl VM {
                         _ => receiver.type_name().to_string(),
                     };
 
-                    // Look up the method
-                    let closure = self.methods
-                        .get(&type_name)
-                        .and_then(|methods| methods.get(&method_name))
-                        .cloned()
-                        .ok_or_else(|| RuntimeError::UndefinedMethod {
-                            method: method_name.clone(),
-                            type_name: type_name.clone()
-                        })?;
+                    let type_id = TypeId::from_name(&type_name);
+
+                    // Try inline cache first
+                    let closure = if let Some(slot) = self.inline_cache.lookup_method(call_site, type_id) {
+                        // Cache hit - direct indexed access
+                        self.method_slots[slot].clone()
+                    } else {
+                        // Cache miss - look up slot and update cache
+                        let slot = self.method_slot_lookup
+                            .get(&(type_name.clone(), method_name.clone()))
+                            .copied()
+                            .ok_or_else(|| RuntimeError::UndefinedMethod {
+                                method: method_name.clone(),
+                                type_name: type_name.clone(),
+                            })?;
+                        self.inline_cache.update_method(call_site, type_id, slot);
+                        self.method_slots[slot].clone()
+                    };
 
                     // Check arity
                     if closure.proto.arity != arg_count {
@@ -1039,6 +1057,9 @@ impl VM {
                 }
 
                 OpCode::CallStatic => {
+                    // Capture call site for inline caching (before reading operands)
+                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+
                     let type_name_idx = self.read_u16() as usize;
                     let method_name_idx = self.read_u16() as usize;
                     let arg_count = self.read_byte();
@@ -1053,15 +1074,24 @@ impl VM {
                         _ => return Err(RuntimeError::InternalError("Invalid method name constant".to_string())),
                     };
 
-                    // Look up the static method
-                    let closure = self.methods
-                        .get(&type_name)
-                        .and_then(|methods| methods.get(&method_name))
-                        .cloned()
-                        .ok_or_else(|| RuntimeError::UndefinedMethod {
-                            method: method_name.clone(),
-                            type_name: type_name.clone()
-                        })?;
+                    let type_id = TypeId::from_name(&type_name);
+
+                    // Try inline cache first
+                    let closure = if let Some(slot) = self.inline_cache.lookup_method(call_site, type_id) {
+                        // Cache hit - direct indexed access
+                        self.method_slots[slot].clone()
+                    } else {
+                        // Cache miss - look up slot and update cache
+                        let slot = self.method_slot_lookup
+                            .get(&(type_name.clone(), method_name.clone()))
+                            .copied()
+                            .ok_or_else(|| RuntimeError::UndefinedMethod {
+                                method: method_name.clone(),
+                                type_name: type_name.clone(),
+                            })?;
+                        self.inline_cache.update_method(call_site, type_id, slot);
+                        self.method_slots[slot].clone()
+                    };
 
                     // Check arity
                     if closure.proto.arity != arg_count {
@@ -1098,7 +1128,12 @@ impl VM {
                         }),
                     };
 
-                    // Register the method
+                    // Assign slot for indexed access (inline cache)
+                    let slot = self.method_slots.len();
+                    self.method_slots.push(closure.clone());
+                    self.method_slot_lookup.insert((type_name.clone(), method_name.clone()), slot);
+
+                    // Register the method in HashMap (for compatibility)
                     self.methods
                         .entry(type_name)
                         .or_insert_with(HashMap::new)

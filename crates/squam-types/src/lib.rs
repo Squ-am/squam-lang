@@ -10,6 +10,27 @@ pub use checker::{TypeChecker, TypeError};
 
 use rustc_hash::FxHashMap;
 
+/// The kind of generic instantiation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstantiationKind {
+    Function,
+    Struct,
+    Enum,
+}
+
+/// A concrete instantiation of a generic type or function.
+#[derive(Debug, Clone)]
+pub struct GenericInstantiation {
+    /// The name of the generic (e.g., "identity", "Option")
+    pub name: String,
+    /// What kind of generic this is
+    pub kind: InstantiationKind,
+    /// The concrete type argument names (e.g., ["i64"] for Option<i64>)
+    pub type_args: Vec<String>,
+    /// Source location where this instantiation was used
+    pub span: u32,
+}
+
 /// Type annotations for expressions, collected during type checking.
 /// Used by the compiler for type-specialized code generation.
 #[derive(Debug, Clone, Default)]
@@ -18,6 +39,8 @@ pub struct TypeAnnotations {
     pub expr_types: FxHashMap<u32, TypeId>,
     /// Map from struct name to ordered field names (for indexed field access)
     pub struct_layouts: FxHashMap<String, Vec<String>>,
+    /// Generic instantiations discovered during type checking
+    pub instantiations: Vec<GenericInstantiation>,
 }
 
 impl TypeAnnotations {
@@ -38,6 +61,22 @@ impl TypeAnnotations {
     /// Record struct field layout for indexed access
     pub fn record_struct_layout(&mut self, name: String, fields: Vec<String>) {
         self.struct_layouts.insert(name, fields);
+    }
+
+    /// Record a generic instantiation
+    pub fn record_instantiation(&mut self, name: String, kind: InstantiationKind, type_args: Vec<String>, span: u32) {
+        // Avoid duplicates
+        let exists = self.instantiations.iter().any(|inst| {
+            inst.name == name && inst.kind == kind && inst.type_args == type_args
+        });
+        if !exists {
+            self.instantiations.push(GenericInstantiation {
+                name,
+                kind,
+                type_args,
+                span,
+            });
+        }
     }
 
     /// Check if the type is a known integer type
