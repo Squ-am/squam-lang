@@ -57,21 +57,24 @@ impl ConstantFolder {
     /// Fold constants in an expression, returning a potentially simplified expression.
     pub fn fold(expr: &Expr) -> Option<Expr> {
         match &expr.kind {
-            ExprKind::Binary { op, left, right } => {
-                Self::fold_binary(*op, left, right, expr.span)
-            }
-            ExprKind::Unary { op, operand } => {
-                Self::fold_unary(*op, operand, expr.span)
-            }
-            ExprKind::If { condition, then_branch, else_branch } => {
-                Self::fold_if(condition, then_branch, else_branch.as_deref(), expr.span)
-            }
+            ExprKind::Binary { op, left, right } => Self::fold_binary(*op, left, right, expr.span),
+            ExprKind::Unary { op, operand } => Self::fold_unary(*op, operand, expr.span),
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => Self::fold_if(condition, then_branch, else_branch.as_deref(), expr.span),
             _ => None,
         }
     }
 
     /// Try to fold a binary operation.
-    fn fold_binary(op: BinaryOp, left: &Expr, right: &Expr, span: squam_lexer::Span) -> Option<Expr> {
+    fn fold_binary(
+        op: BinaryOp,
+        left: &Expr,
+        right: &Expr,
+        span: squam_lexer::Span,
+    ) -> Option<Expr> {
         // First, try to fold the operands
         let left = Self::fold(left).unwrap_or_else(|| left.clone());
         let right = Self::fold(right).unwrap_or_else(|| right.clone());
@@ -85,43 +88,39 @@ impl ConstantFolder {
         // Evaluate the operation
         let result = match (left_lit, right_lit) {
             // Integer operations
-            (Literal::Int(a), Literal::Int(b)) => {
-                match op {
-                    BinaryOp::Add => Some(Literal::Int(a.wrapping_add(*b))),
-                    BinaryOp::Sub => Some(Literal::Int(a.wrapping_sub(*b))),
-                    BinaryOp::Mul => Some(Literal::Int(a.wrapping_mul(*b))),
-                    BinaryOp::Div if *b != 0 => Some(Literal::Int(a / b)),
-                    BinaryOp::Rem if *b != 0 => Some(Literal::Int(a % b)),
-                    BinaryOp::BitAnd => Some(Literal::Int(a & b)),
-                    BinaryOp::BitOr => Some(Literal::Int(a | b)),
-                    BinaryOp::BitXor => Some(Literal::Int(a ^ b)),
-                    BinaryOp::Shl => Some(Literal::Int(a << (b & 63))),
-                    BinaryOp::Shr => Some(Literal::Int(a >> (b & 63))),
-                    BinaryOp::Eq => Some(Literal::Bool(a == b)),
-                    BinaryOp::Ne => Some(Literal::Bool(a != b)),
-                    BinaryOp::Lt => Some(Literal::Bool(a < b)),
-                    BinaryOp::Le => Some(Literal::Bool(a <= b)),
-                    BinaryOp::Gt => Some(Literal::Bool(a > b)),
-                    BinaryOp::Ge => Some(Literal::Bool(a >= b)),
-                    _ => None,
-                }
-            }
+            (Literal::Int(a), Literal::Int(b)) => match op {
+                BinaryOp::Add => Some(Literal::Int(a.wrapping_add(*b))),
+                BinaryOp::Sub => Some(Literal::Int(a.wrapping_sub(*b))),
+                BinaryOp::Mul => Some(Literal::Int(a.wrapping_mul(*b))),
+                BinaryOp::Div if *b != 0 => Some(Literal::Int(a / b)),
+                BinaryOp::Rem if *b != 0 => Some(Literal::Int(a % b)),
+                BinaryOp::BitAnd => Some(Literal::Int(a & b)),
+                BinaryOp::BitOr => Some(Literal::Int(a | b)),
+                BinaryOp::BitXor => Some(Literal::Int(a ^ b)),
+                BinaryOp::Shl => Some(Literal::Int(a << (b & 63))),
+                BinaryOp::Shr => Some(Literal::Int(a >> (b & 63))),
+                BinaryOp::Eq => Some(Literal::Bool(a == b)),
+                BinaryOp::Ne => Some(Literal::Bool(a != b)),
+                BinaryOp::Lt => Some(Literal::Bool(a < b)),
+                BinaryOp::Le => Some(Literal::Bool(a <= b)),
+                BinaryOp::Gt => Some(Literal::Bool(a > b)),
+                BinaryOp::Ge => Some(Literal::Bool(a >= b)),
+                _ => None,
+            },
             // Float operations
-            (Literal::Float(a), Literal::Float(b)) => {
-                match op {
-                    BinaryOp::Add => Some(Literal::Float(a + b)),
-                    BinaryOp::Sub => Some(Literal::Float(a - b)),
-                    BinaryOp::Mul => Some(Literal::Float(a * b)),
-                    BinaryOp::Div if *b != 0.0 => Some(Literal::Float(a / b)),
-                    BinaryOp::Eq => Some(Literal::Bool(a == b)),
-                    BinaryOp::Ne => Some(Literal::Bool(a != b)),
-                    BinaryOp::Lt => Some(Literal::Bool(a < b)),
-                    BinaryOp::Le => Some(Literal::Bool(a <= b)),
-                    BinaryOp::Gt => Some(Literal::Bool(a > b)),
-                    BinaryOp::Ge => Some(Literal::Bool(a >= b)),
-                    _ => None,
-                }
-            }
+            (Literal::Float(a), Literal::Float(b)) => match op {
+                BinaryOp::Add => Some(Literal::Float(a + b)),
+                BinaryOp::Sub => Some(Literal::Float(a - b)),
+                BinaryOp::Mul => Some(Literal::Float(a * b)),
+                BinaryOp::Div if *b != 0.0 => Some(Literal::Float(a / b)),
+                BinaryOp::Eq => Some(Literal::Bool(a == b)),
+                BinaryOp::Ne => Some(Literal::Bool(a != b)),
+                BinaryOp::Lt => Some(Literal::Bool(a < b)),
+                BinaryOp::Le => Some(Literal::Bool(a <= b)),
+                BinaryOp::Gt => Some(Literal::Bool(a > b)),
+                BinaryOp::Ge => Some(Literal::Bool(a >= b)),
+                _ => None,
+            },
             // Mixed int/float
             (Literal::Int(a), Literal::Float(b)) => {
                 let a = *a as f64;
@@ -144,24 +143,20 @@ impl ConstantFolder {
                 }
             }
             // Boolean operations
-            (Literal::Bool(a), Literal::Bool(b)) => {
-                match op {
-                    BinaryOp::And => Some(Literal::Bool(*a && *b)),
-                    BinaryOp::Or => Some(Literal::Bool(*a || *b)),
-                    BinaryOp::Eq => Some(Literal::Bool(a == b)),
-                    BinaryOp::Ne => Some(Literal::Bool(a != b)),
-                    _ => None,
-                }
-            }
+            (Literal::Bool(a), Literal::Bool(b)) => match op {
+                BinaryOp::And => Some(Literal::Bool(*a && *b)),
+                BinaryOp::Or => Some(Literal::Bool(*a || *b)),
+                BinaryOp::Eq => Some(Literal::Bool(a == b)),
+                BinaryOp::Ne => Some(Literal::Bool(a != b)),
+                _ => None,
+            },
             // String concatenation
-            (Literal::String(a), Literal::String(b)) => {
-                match op {
-                    BinaryOp::Add => Some(Literal::String(format!("{}{}", a, b))),
-                    BinaryOp::Eq => Some(Literal::Bool(a == b)),
-                    BinaryOp::Ne => Some(Literal::Bool(a != b)),
-                    _ => None,
-                }
-            }
+            (Literal::String(a), Literal::String(b)) => match op {
+                BinaryOp::Add => Some(Literal::String(format!("{}{}", a, b))),
+                BinaryOp::Eq => Some(Literal::Bool(a == b)),
+                BinaryOp::Ne => Some(Literal::Bool(a != b)),
+                _ => None,
+            },
             _ => None,
         };
 
@@ -276,9 +271,7 @@ impl PeepholeOptimizer {
                         let op1_size = Self::instruction_size(&op1, code, i);
 
                         // Replace with NOPs
-                        for j in i..op2_idx + 1 {
-                            code[j] = OpCode::Nop as u8;
-                        }
+                        code[i..=op2_idx].fill(OpCode::Nop as u8);
 
                         stats.eliminated_instructions += op1_size + 1;
                         changed = true;
@@ -308,8 +301,7 @@ impl PeepholeOptimizer {
                 let op2 = OpCode::try_from(code[op2_idx]);
 
                 match (op1, op2) {
-                    (Ok(OpCode::Neg), Ok(OpCode::Neg))
-                    | (Ok(OpCode::Not), Ok(OpCode::Not)) => {
+                    (Ok(OpCode::Neg), Ok(OpCode::Neg)) | (Ok(OpCode::Not), Ok(OpCode::Not)) => {
                         code[i] = OpCode::Nop as u8;
                         code[op2_idx] = OpCode::Nop as u8;
                         stats.eliminated_instructions += 2;
@@ -676,7 +668,10 @@ mod tests {
         };
 
         let folded = ConstantFolder::fold(&expr).unwrap();
-        assert!(matches!(folded.kind, ExprKind::Literal(Literal::Bool(true))));
+        assert!(matches!(
+            folded.kind,
+            ExprKind::Literal(Literal::Bool(true))
+        ));
     }
 
     #[test]

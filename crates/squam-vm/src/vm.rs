@@ -6,7 +6,10 @@ use squam_compiler::{Chunk, Constant, FunctionProto, OpCode};
 
 use crate::gc::{GcConfig, GcHeap, GcStats, Trace};
 use crate::inline_cache::{CallSiteId, InlineCacheManager, TypeId};
-use crate::value::{ArrayIterator, Closure, EnumInstance, NativeFunction, RangeIterator, SquamIterator, StructInstance, Upvalue, Value, VMNativeFnId};
+use crate::value::{
+    ArrayIterator, Closure, EnumInstance, NativeFunction, RangeIterator, SquamIterator,
+    StructInstance, Upvalue, VMNativeFnId, Value,
+};
 
 /// VM execution errors.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -166,14 +169,6 @@ impl VM {
         self.inline_cache.hit_ratio()
     }
 
-    /// Check if GC should run and run it if needed.
-    #[allow(dead_code)]
-    fn maybe_collect(&mut self) {
-        if self.gc_enabled && self.gc_heap.should_collect() {
-            self.collect_garbage();
-        }
-    }
-
     /// Register native functions.
     fn register_natives(&mut self) {
         self.define_native("print", 1, |args| {
@@ -206,7 +201,10 @@ impl VM {
                 arr.borrow_mut().push(args[1].clone());
                 Ok(Value::Unit)
             } else {
-                Err(format!("push() requires array, got {}", args[0].type_name()))
+                Err(format!(
+                    "push() requires array, got {}",
+                    args[0].type_name()
+                ))
             }
         });
 
@@ -268,7 +266,11 @@ impl VM {
     /// Call a closure with the given arguments. Used by VM-native functions.
     /// This runs the closure to completion and returns its result without
     /// continuing execution of outer frames.
-    pub fn call_closure_value(&mut self, closure: &Rc<Closure>, args: Vec<Value>) -> Result<Value, RuntimeError> {
+    pub fn call_closure_value(
+        &mut self,
+        closure: &Rc<Closure>,
+        args: Vec<Value>,
+    ) -> Result<Value, RuntimeError> {
         // Push arguments onto stack
         for arg in &args {
             self.push(arg.clone())?;
@@ -316,8 +318,8 @@ impl VM {
             }
             Value::Native(native) => {
                 let start = self.stack.len() - args.len();
-                let result = (native.func)(&mut self.stack[start..])
-                    .map_err(RuntimeError::Custom)?;
+                let result =
+                    (native.func)(&mut self.stack[start..]).map_err(RuntimeError::Custom)?;
                 self.stack.truncate(start);
                 Ok(result)
             }
@@ -335,10 +337,9 @@ impl VM {
         self.output.clear();
     }
 
-    // ---
     // Stack operations
-    // ---
 
+    #[inline]
     fn push(&mut self, value: Value) -> Result<(), RuntimeError> {
         if self.stack.len() >= self.max_stack_size {
             return Err(RuntimeError::Custom("stack overflow".to_string()));
@@ -347,28 +348,31 @@ impl VM {
         Ok(())
     }
 
+    #[inline]
     fn pop(&mut self) -> Result<Value, RuntimeError> {
         self.stack.pop().ok_or(RuntimeError::StackUnderflow)
     }
 
+    #[inline]
     fn peek(&self, distance: usize) -> Result<&Value, RuntimeError> {
         let idx = self.stack.len().checked_sub(1 + distance);
         idx.and_then(|i| self.stack.get(i))
             .ok_or(RuntimeError::StackUnderflow)
     }
 
-    // ---
     // Frame operations
-    // ---
 
+    #[inline]
     fn current_frame(&self) -> &CallFrame {
         self.frames.last().expect("No call frame")
     }
 
+    #[inline]
     fn current_frame_mut(&mut self) -> &mut CallFrame {
         self.frames.last_mut().expect("No call frame")
     }
 
+    #[inline]
     fn read_byte(&mut self) -> u8 {
         let frame = self.current_frame_mut();
         let byte = frame.chunk().code[frame.ip];
@@ -376,6 +380,7 @@ impl VM {
         byte
     }
 
+    #[inline]
     fn read_u16(&mut self) -> u16 {
         let frame = self.current_frame_mut();
         let chunk = &frame.closure.proto.chunk;
@@ -389,17 +394,17 @@ impl VM {
         &self.current_frame().closure.proto.chunk.constants[index]
     }
 
-    // ---
-    // Call operations
-    // ---
-
     fn call_closure(&mut self, closure: Rc<Closure>, arg_count: u8) -> Result<(), RuntimeError> {
         let min_arity = closure.proto.min_arity;
         let max_arity = closure.proto.arity;
 
         if arg_count < min_arity || arg_count > max_arity {
             return Err(RuntimeError::ArityMismatch {
-                expected: if min_arity == max_arity { max_arity } else { min_arity },
+                expected: if min_arity == max_arity {
+                    max_arity
+                } else {
+                    min_arity
+                },
                 got: arg_count,
             });
         }
@@ -411,9 +416,9 @@ impl VM {
             // We need the last `missing_args` defaults
             let defaults = &closure.proto.defaults;
             let defaults_to_use = defaults.len().saturating_sub(missing_args as usize);
-            for i in defaults_to_use..defaults.len() {
-                let const_idx = defaults[i] as usize;
-                let value = self.constant_to_value_from_proto(&closure.proto, const_idx)?;
+            for &const_idx in &defaults[defaults_to_use..] {
+                let value =
+                    self.constant_to_value_from_proto(&closure.proto, const_idx as usize)?;
                 self.push(value)?;
             }
         }
@@ -432,25 +437,30 @@ impl VM {
         Ok(())
     }
 
-    fn constant_to_value_from_proto(&self, proto: &FunctionProto, idx: usize) -> Result<Value, RuntimeError> {
+    fn constant_to_value_from_proto(
+        &self,
+        proto: &FunctionProto,
+        idx: usize,
+    ) -> Result<Value, RuntimeError> {
         let constant = &proto.chunk.constants[idx];
         match constant {
             Constant::Int(n) => Ok(Value::Int(*n)),
             Constant::Float(n) => Ok(Value::Float(*n)),
             Constant::String(s) => Ok(Value::String(Rc::new(s.clone()))),
-            _ => Err(RuntimeError::Custom("Invalid default value type".to_string())),
+            _ => Err(RuntimeError::Custom(
+                "Invalid default value type".to_string(),
+            )),
         }
     }
-
-    // ---
-    // Main execution loop
-    // ---
 
     fn execute(&mut self) -> Result<Value, RuntimeError> {
         self.execute_with_target_frame_count(None)
     }
 
-    fn execute_with_target_frame_count(&mut self, target_frame_count: Option<usize>) -> Result<Value, RuntimeError> {
+    fn execute_with_target_frame_count(
+        &mut self,
+        target_frame_count: Option<usize>,
+    ) -> Result<Value, RuntimeError> {
         loop {
             let opcode_byte = self.read_byte();
             let opcode = OpCode::try_from(opcode_byte)
@@ -536,7 +546,7 @@ impl VM {
                         .globals
                         .get(&name)
                         .cloned()
-                        .ok_or_else(|| RuntimeError::UndefinedVariable(name))?;
+                        .ok_or(RuntimeError::UndefinedVariable(name))?;
                     self.push(value)?;
                 }
                 OpCode::StoreGlobal => {
@@ -622,9 +632,8 @@ impl VM {
                 OpCode::Rem => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    match &b {
-                        Value::Int(0) => return Err(RuntimeError::DivisionByZero),
-                        _ => {}
+                    if let Value::Int(0) = &b {
+                        return Err(RuntimeError::DivisionByZero);
                     }
                     let result = self.binary_num_op(&a, &b, |a, b| a % b, |a, b| a % b)?;
                     self.push(result)?;
@@ -938,9 +947,7 @@ impl VM {
                             let result = func(self, &args)?;
                             self.push(result)?;
                         }
-                        _ => {
-                            return Err(RuntimeError::NotCallable(callee.type_name().to_string()))
-                        }
+                        _ => return Err(RuntimeError::NotCallable(callee.type_name().to_string())),
                     }
                 }
                 OpCode::TailCall => {
@@ -975,9 +982,7 @@ impl VM {
                             frame.closure = closure;
                             frame.ip = 0;
                         }
-                        _ => {
-                            return Err(RuntimeError::NotCallable(callee.type_name().to_string()))
-                        }
+                        _ => return Err(RuntimeError::NotCallable(callee.type_name().to_string())),
                     }
                 }
                 OpCode::Return => {
@@ -1004,14 +1009,19 @@ impl VM {
 
                 OpCode::CallMethod => {
                     // Capture call site for inline caching (before reading operands)
-                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+                    let call_site =
+                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
 
                     let method_name_idx = self.read_u16() as usize;
                     let arg_count = self.read_byte();
 
                     let method_name = match self.read_constant(method_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid method name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid method name constant".to_string(),
+                            ))
+                        }
                     };
 
                     // Get receiver (first arg, at bottom of args on stack)
@@ -1028,21 +1038,23 @@ impl VM {
                     let type_id = TypeId::from_name(&type_name);
 
                     // Try inline cache first
-                    let closure = if let Some(slot) = self.inline_cache.lookup_method(call_site, type_id) {
-                        // Cache hit - direct indexed access
-                        self.method_slots[slot].clone()
-                    } else {
-                        // Cache miss - look up slot and update cache
-                        let slot = self.method_slot_lookup
-                            .get(&(type_name.clone(), method_name.clone()))
-                            .copied()
-                            .ok_or_else(|| RuntimeError::UndefinedMethod {
-                                method: method_name.clone(),
-                                type_name: type_name.clone(),
-                            })?;
-                        self.inline_cache.update_method(call_site, type_id, slot);
-                        self.method_slots[slot].clone()
-                    };
+                    let closure =
+                        if let Some(slot) = self.inline_cache.lookup_method(call_site, type_id) {
+                            // Cache hit - direct indexed access
+                            self.method_slots[slot].clone()
+                        } else {
+                            // Cache miss - look up slot and update cache
+                            let slot = self
+                                .method_slot_lookup
+                                .get(&(type_name.clone(), method_name.clone()))
+                                .copied()
+                                .ok_or_else(|| RuntimeError::UndefinedMethod {
+                                    method: method_name.clone(),
+                                    type_name: type_name.clone(),
+                                })?;
+                            self.inline_cache.update_method(call_site, type_id, slot);
+                            self.method_slots[slot].clone()
+                        };
 
                     // Check arity
                     if closure.proto.arity != arg_count {
@@ -1058,7 +1070,8 @@ impl VM {
 
                 OpCode::CallStatic => {
                     // Capture call site for inline caching (before reading operands)
-                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+                    let call_site =
+                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
 
                     let type_name_idx = self.read_u16() as usize;
                     let method_name_idx = self.read_u16() as usize;
@@ -1066,32 +1079,42 @@ impl VM {
 
                     let type_name = match self.read_constant(type_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid type name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid type name constant".to_string(),
+                            ))
+                        }
                     };
 
                     let method_name = match self.read_constant(method_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid method name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid method name constant".to_string(),
+                            ))
+                        }
                     };
 
                     let type_id = TypeId::from_name(&type_name);
 
                     // Try inline cache first
-                    let closure = if let Some(slot) = self.inline_cache.lookup_method(call_site, type_id) {
-                        // Cache hit - direct indexed access
-                        self.method_slots[slot].clone()
-                    } else {
-                        // Cache miss - look up slot and update cache
-                        let slot = self.method_slot_lookup
-                            .get(&(type_name.clone(), method_name.clone()))
-                            .copied()
-                            .ok_or_else(|| RuntimeError::UndefinedMethod {
-                                method: method_name.clone(),
-                                type_name: type_name.clone(),
-                            })?;
-                        self.inline_cache.update_method(call_site, type_id, slot);
-                        self.method_slots[slot].clone()
-                    };
+                    let closure =
+                        if let Some(slot) = self.inline_cache.lookup_method(call_site, type_id) {
+                            // Cache hit - direct indexed access
+                            self.method_slots[slot].clone()
+                        } else {
+                            // Cache miss - look up slot and update cache
+                            let slot = self
+                                .method_slot_lookup
+                                .get(&(type_name.clone(), method_name.clone()))
+                                .copied()
+                                .ok_or_else(|| RuntimeError::UndefinedMethod {
+                                    method: method_name.clone(),
+                                    type_name: type_name.clone(),
+                                })?;
+                            self.inline_cache.update_method(call_site, type_id, slot);
+                            self.method_slots[slot].clone()
+                        };
 
                     // Check arity
                     if closure.proto.arity != arg_count {
@@ -1111,32 +1134,43 @@ impl VM {
 
                     let type_name = match self.read_constant(type_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid type name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid type name constant".to_string(),
+                            ))
+                        }
                     };
 
                     let method_name = match self.read_constant(method_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid method name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid method name constant".to_string(),
+                            ))
+                        }
                     };
 
                     // Pop the closure from the stack
                     let closure = match self.pop()? {
                         Value::Closure(c) => c,
-                        v => return Err(RuntimeError::TypeError {
-                            expected: "closure",
-                            got: v.type_name().to_string()
-                        }),
+                        v => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "closure",
+                                got: v.type_name().to_string(),
+                            })
+                        }
                     };
 
                     // Assign slot for indexed access (inline cache)
                     let slot = self.method_slots.len();
                     self.method_slots.push(closure.clone());
-                    self.method_slot_lookup.insert((type_name.clone(), method_name.clone()), slot);
+                    self.method_slot_lookup
+                        .insert((type_name.clone(), method_name.clone()), slot);
 
                     // Register the method in HashMap (for compatibility)
                     self.methods
                         .entry(type_name)
-                        .or_insert_with(HashMap::new)
+                        .or_default()
                         .insert(method_name, closure);
                 }
 
@@ -1198,9 +1232,11 @@ impl VM {
                     // Get struct info from constants
                     let (name, field_names) = match self.read_constant(struct_info_idx as usize) {
                         Constant::StructInfo { name, fields } => (name.clone(), fields.clone()),
-                        _ => return Err(RuntimeError::InternalError(
-                            "Expected StructInfo constant".to_string()
-                        )),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Expected StructInfo constant".to_string(),
+                            ))
+                        }
                     };
 
                     // Pop field values (in reverse order since they're on stack)
@@ -1219,14 +1255,17 @@ impl VM {
                     let field_count = self.read_byte() as usize;
 
                     // Get enum info from constants
-                    let (enum_name, variant_name) = match self.read_constant(enum_info_idx as usize) {
+                    let (enum_name, variant_name) = match self.read_constant(enum_info_idx as usize)
+                    {
                         Constant::EnumInfo { name, variants } => {
                             let variant = &variants[variant_idx as usize];
                             (name.clone(), variant.0.clone())
                         }
-                        _ => return Err(RuntimeError::InternalError(
-                            "Expected EnumInfo constant".to_string()
-                        )),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Expected EnumInfo constant".to_string(),
+                            ))
+                        }
                     };
 
                     // Pop field values (in reverse order since they're on stack)
@@ -1247,55 +1286,57 @@ impl VM {
                     let inclusive = self.read_byte() != 0;
                     let end = match self.pop()? {
                         Value::Int(n) => n,
-                        v => return Err(RuntimeError::TypeError {
-                            expected: "int",
-                            got: v.type_name().to_string(),
-                        }),
+                        v => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "int",
+                                got: v.type_name().to_string(),
+                            })
+                        }
                     };
                     let start = match self.pop()? {
                         Value::Int(n) => n,
-                        v => return Err(RuntimeError::TypeError {
-                            expected: "int",
-                            got: v.type_name().to_string(),
-                        }),
+                        v => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "int",
+                                got: v.type_name().to_string(),
+                            })
+                        }
                     };
                     self.push(Value::Range(start, end, inclusive))?;
                 }
                 OpCode::GetField => {
                     let index = self.read_byte() as usize;
                     let value = self.pop()?;
-                    let field = match value {
-                        Value::Tuple(t) => t
-                            .get(index)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::IndexOutOfBounds {
-                                index: index as i64,
-                                length: t.len(),
-                            })?,
-                        Value::Array(arr) => {
-                            let arr = arr.borrow();
-                            arr.get(index)
-                                .cloned()
-                                .ok_or_else(|| RuntimeError::IndexOutOfBounds {
+                    let field =
+                        match value {
+                            Value::Tuple(t) => t.get(index).cloned().ok_or_else(|| {
+                                RuntimeError::IndexOutOfBounds {
                                     index: index as i64,
-                                    length: arr.len(),
-                                })?
-                        }
-                        Value::Enum(e) => e
-                            .fields
-                            .get(index)
-                            .cloned()
-                            .ok_or_else(|| RuntimeError::IndexOutOfBounds {
-                                index: index as i64,
-                                length: e.fields.len(),
+                                    length: t.len(),
+                                }
                             })?,
-                        _ => {
-                            return Err(RuntimeError::TypeError {
-                                expected: "tuple, array, or enum",
-                                got: value.type_name().to_string(),
-                            })
-                        }
-                    };
+                            Value::Array(arr) => {
+                                let arr = arr.borrow();
+                                arr.get(index).cloned().ok_or_else(|| {
+                                    RuntimeError::IndexOutOfBounds {
+                                        index: index as i64,
+                                        length: arr.len(),
+                                    }
+                                })?
+                            }
+                            Value::Enum(e) => e.fields.get(index).cloned().ok_or_else(|| {
+                                RuntimeError::IndexOutOfBounds {
+                                    index: index as i64,
+                                    length: e.fields.len(),
+                                }
+                            })?,
+                            _ => {
+                                return Err(RuntimeError::TypeError {
+                                    expected: "tuple, array, or enum",
+                                    got: value.type_name().to_string(),
+                                })
+                            }
+                        };
                     self.push(field)?;
                 }
                 OpCode::SetField => {
@@ -1324,13 +1365,16 @@ impl VM {
                 }
                 OpCode::GetFieldNamed => {
                     // Call site ID for inline caching (IP before reading operands)
-                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+                    let call_site =
+                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
                     let field_name_idx = self.read_u16();
                     let field_name = match self.read_constant(field_name_idx as usize) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError(
-                            "Expected string constant for field name".to_string()
-                        )),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Expected string constant for field name".to_string(),
+                            ))
+                        }
                     };
                     let value = self.pop()?;
                     let field = match value {
@@ -1338,7 +1382,9 @@ impl VM {
                             let type_id = TypeId::from_name(&s.name);
 
                             // Try cache first
-                            if let Some(cached_idx) = self.inline_cache.lookup_field(call_site, type_id) {
+                            if let Some(cached_idx) =
+                                self.inline_cache.lookup_field(call_site, type_id)
+                            {
                                 // Cache hit - use indexed access
                                 s.get_field_idx(cached_idx).ok_or_else(|| {
                                     RuntimeError::UndefinedField {
@@ -1378,13 +1424,16 @@ impl VM {
                 }
                 OpCode::SetFieldNamed => {
                     // Call site ID for inline caching
-                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
+                    let call_site =
+                        CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
                     let field_name_idx = self.read_u16();
                     let field_name = match self.read_constant(field_name_idx as usize) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError(
-                            "Expected string constant for field name".to_string()
-                        )),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Expected string constant for field name".to_string(),
+                            ))
+                        }
                     };
                     let target = self.pop()?;
                     let value = self.pop()?;
@@ -1393,7 +1442,9 @@ impl VM {
                             let type_id = TypeId::from_name(&s.name);
 
                             // Try cache first
-                            if let Some(cached_idx) = self.inline_cache.lookup_field(call_site, type_id) {
+                            if let Some(cached_idx) =
+                                self.inline_cache.lookup_field(call_site, type_id)
+                            {
                                 // Cache hit - use indexed access
                                 s.set_field_idx(cached_idx, value.clone());
                             } else {
@@ -1532,7 +1583,8 @@ impl VM {
                         (Value::String(string), Value::Int(s), Value::Int(e)) => {
                             let start = *s as usize;
                             let end = (*e as usize).min(string.len());
-                            let slice: String = string.chars().skip(start).take(end - start).collect();
+                            let slice: String =
+                                string.chars().skip(start).take(end - start).collect();
                             self.push(Value::String(Rc::new(slice)))?;
                         }
                         _ => {
@@ -1585,12 +1637,20 @@ impl VM {
 
                     let enum_name = match self.read_constant(enum_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid enum name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid enum name constant".to_string(),
+                            ))
+                        }
                     };
 
                     let variant_name = match self.read_constant(variant_name_idx) {
                         Constant::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::InternalError("Invalid variant name constant".to_string())),
+                        _ => {
+                            return Err(RuntimeError::InternalError(
+                                "Invalid variant name constant".to_string(),
+                            ))
+                        }
                     };
 
                     let scrutinee = self.pop()?;
@@ -1691,7 +1751,7 @@ impl VM {
                         Value::LocalRef(slot, mutable) => {
                             if !mutable {
                                 return Err(RuntimeError::Custom(
-                                    "cannot assign through immutable reference".to_string()
+                                    "cannot assign through immutable reference".to_string(),
                                 ));
                             }
                             self.stack[slot] = value;
@@ -1740,10 +1800,6 @@ impl VM {
         }
     }
 
-    // ---
-    // Helper methods
-    // ---
-
     fn constant_to_value(&self, idx: usize) -> Result<Value, RuntimeError> {
         let constant = &self.current_frame().closure.proto.chunk.constants[idx];
         Ok(match constant {
@@ -1760,7 +1816,7 @@ impl VM {
             // These are metadata constants, not runtime values
             Constant::StructInfo { .. } | Constant::EnumInfo { .. } => {
                 return Err(RuntimeError::InternalError(
-                    "Cannot load type info as value".to_string()
+                    "Cannot load type info as value".to_string(),
                 ));
             }
         })

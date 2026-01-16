@@ -59,46 +59,34 @@ pub fn unwrap_or(opt: &Value, default: Value) -> Value {
 /// Register Option functions with the VM.
 pub fn register(vm: &mut VM) {
     // Some constructor
-    vm.define_native("Some", 1, |args| {
-        Ok(some(args[0].clone()))
-    });
+    vm.define_native("Some", 1, |args| Ok(some(args[0].clone())));
 
     // None constructor
-    vm.define_native("None", 0, |_args| {
-        Ok(none())
-    });
+    vm.define_native("None", 0, |_args| Ok(none()));
 
     // is_some
-    vm.define_native("is_some", 1, |args| {
-        Ok(Value::Bool(is_some(&args[0])))
-    });
+    vm.define_native("is_some", 1, |args| Ok(Value::Bool(is_some(&args[0]))));
 
     // is_none
-    vm.define_native("is_none", 1, |args| {
-        Ok(Value::Bool(is_none(&args[0])))
-    });
+    vm.define_native("is_none", 1, |args| Ok(Value::Bool(is_none(&args[0]))));
 
     // unwrap
-    vm.define_native("unwrap", 1, |args| {
-        match &args[0] {
-            Value::Enum(e) if e.enum_name == "Option" && e.variant == "Some" => {
-                Ok(e.fields.first().cloned().unwrap_or(Value::Unit))
-            }
-            Value::Enum(e) if e.enum_name == "Option" && e.variant == "None" => {
-                Err("called unwrap on a None value".to_string())
-            }
-            _ => Err("unwrap expects an Option".to_string()),
+    vm.define_native("unwrap", 1, |args| match &args[0] {
+        Value::Enum(e) if e.enum_name == "Option" && e.variant == "Some" => {
+            Ok(e.fields.first().cloned().unwrap_or(Value::Unit))
         }
+        Value::Enum(e) if e.enum_name == "Option" && e.variant == "None" => {
+            Err("called unwrap on a None value".to_string())
+        }
+        _ => Err("unwrap expects an Option".to_string()),
     });
 
     // unwrap_or
-    vm.define_native("unwrap_or", 2, |args| {
-        match &args[0] {
-            Value::Enum(e) if e.enum_name == "Option" && e.variant == "Some" => {
-                Ok(e.fields.first().cloned().unwrap_or(Value::Unit))
-            }
-            _ => Ok(args[1].clone()),
+    vm.define_native("unwrap_or", 2, |args| match &args[0] {
+        Value::Enum(e) if e.enum_name == "Option" && e.variant == "Some" => {
+            Ok(e.fields.first().cloned().unwrap_or(Value::Unit))
         }
+        _ => Ok(args[1].clone()),
     });
 
     // map - applies a function to the inner value if Some

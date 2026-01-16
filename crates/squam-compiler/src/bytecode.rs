@@ -496,7 +496,10 @@ pub enum Constant {
     /// Struct type info (name, field names in order)
     StructInfo { name: String, fields: Vec<String> },
     /// Enum type info (name, variant names in declaration order)
-    EnumInfo { name: String, variants: Vec<(String, usize)> }, // (variant_name, field_count)
+    EnumInfo {
+        name: String,
+        variants: Vec<(String, usize)>,
+    }, // (variant_name, field_count)
 }
 
 /// Information about an upvalue capture.
@@ -568,16 +571,20 @@ impl Chunk {
         self.write_u16(value as u16, line);
     }
 
-    /// Add a constant and return its index.
-    pub fn add_constant(&mut self, constant: Constant) -> u16 {
+    /// Add a constant and return its index, or None if pool is full.
+    pub fn add_constant(&mut self, constant: Constant) -> Option<u16> {
         // Check for existing constant
         for (i, c) in self.constants.iter().enumerate() {
             if c == &constant {
-                return i as u16;
+                return Some(i as u16);
             }
         }
+        let idx = self.constants.len();
+        if idx > u16::MAX as usize {
+            return None;
+        }
         self.constants.push(constant);
-        (self.constants.len() - 1) as u16
+        Some(idx as u16)
     }
 
     /// Get the current code length.
@@ -641,30 +648,64 @@ impl Chunk {
             OpCode::Const => {
                 let idx = self.read_u16(offset + 1);
                 let constant = &self.constants[idx as usize];
-                format!("{:04} {} {:16} {} ; {:?}", offset, line_str, op.name(), idx, constant)
+                format!(
+                    "{:04} {} {:16} {} ; {:?}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    idx,
+                    constant
+                )
             }
             OpCode::ConstSmall => {
                 let idx = self.code[offset + 1];
                 let constant = &self.constants[idx as usize];
-                format!("{:04} {} {:16} {} ; {:?}", offset, line_str, op.name(), idx, constant)
+                format!(
+                    "{:04} {} {:16} {} ; {:?}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    idx,
+                    constant
+                )
             }
             OpCode::LoadLocal | OpCode::StoreLocal | OpCode::LoadGlobal | OpCode::StoreGlobal => {
                 let idx = self.read_u16(offset + 1);
                 format!("{:04} {} {:16} {}", offset, line_str, op.name(), idx)
             }
-            OpCode::LoadLocalSmall | OpCode::StoreLocalSmall | OpCode::LoadUpvalue | OpCode::StoreUpvalue => {
+            OpCode::LoadLocalSmall
+            | OpCode::StoreLocalSmall
+            | OpCode::LoadUpvalue
+            | OpCode::StoreUpvalue => {
                 let idx = self.code[offset + 1];
                 format!("{:04} {} {:16} {}", offset, line_str, op.name(), idx)
             }
-            OpCode::Jump | OpCode::JumpIfFalse | OpCode::JumpIfFalseNoPop | OpCode::JumpIfTrueNoPop => {
+            OpCode::Jump
+            | OpCode::JumpIfFalse
+            | OpCode::JumpIfFalseNoPop
+            | OpCode::JumpIfTrueNoPop => {
                 let jump = self.read_u16(offset + 1) as i16;
                 let target = (offset as i32 + 3 + jump as i32) as usize;
-                format!("{:04} {} {:16} {} -> {}", offset, line_str, op.name(), jump, target)
+                format!(
+                    "{:04} {} {:16} {} -> {}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    jump,
+                    target
+                )
             }
             OpCode::Loop => {
                 let jump = self.read_u16(offset + 1);
                 let target = offset + 3 - jump as usize;
-                format!("{:04} {} {:16} {} -> {}", offset, line_str, op.name(), jump, target)
+                format!(
+                    "{:04} {} {:16} {} -> {}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    jump,
+                    target
+                )
             }
             OpCode::Call | OpCode::TailCall => {
                 let argc = self.code[offset + 1];
@@ -673,7 +714,14 @@ impl Chunk {
             OpCode::Closure => {
                 let idx = self.read_u16(offset + 1);
                 let upvalues = self.code[offset + 3];
-                format!("{:04} {} {:16} fn={} upvalues={}", offset, line_str, op.name(), idx, upvalues)
+                format!(
+                    "{:04} {} {:16} fn={} upvalues={}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    idx,
+                    upvalues
+                )
             }
             OpCode::Tuple | OpCode::GetField | OpCode::SetField => {
                 let count = self.code[offset + 1];
@@ -681,7 +729,17 @@ impl Chunk {
             }
             OpCode::Range => {
                 let inclusive = self.code[offset + 1];
-                format!("{:04} {} {:16} {}", offset, line_str, op.name(), if inclusive != 0 { "inclusive" } else { "exclusive" })
+                format!(
+                    "{:04} {} {:16} {}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    if inclusive != 0 {
+                        "inclusive"
+                    } else {
+                        "exclusive"
+                    }
+                )
             }
             OpCode::Array => {
                 let count = self.read_u16(offset + 1);
@@ -701,7 +759,14 @@ impl Chunk {
                     Some(Constant::String(s)) => s.as_str(),
                     _ => "?",
                 };
-                format!("{:04} {} {:16} {} ({})", offset, line_str, op.name(), idx, field_name)
+                format!(
+                    "{:04} {} {:16} {} ({})",
+                    offset,
+                    line_str,
+                    op.name(),
+                    idx,
+                    field_name
+                )
             }
             OpCode::Struct => {
                 let idx = self.read_u16(offset + 1);
@@ -710,7 +775,15 @@ impl Chunk {
                     Some(Constant::StructInfo { name, .. }) => name.as_str(),
                     _ => "?",
                 };
-                format!("{:04} {} {:16} {} ({}) fields={}", offset, line_str, op.name(), idx, struct_name, count)
+                format!(
+                    "{:04} {} {:16} {} ({}) fields={}",
+                    offset,
+                    line_str,
+                    op.name(),
+                    idx,
+                    struct_name,
+                    count
+                )
             }
             _ => format!("{:04} {} {:16}", offset, line_str, op.name()),
         }

@@ -418,9 +418,7 @@ mod tests {
     #[test]
     fn test_run_main() {
         let mut engine = Engine::new();
-        let result: i64 = engine
-            .run_main("fn main() -> int { 42 }")
-            .unwrap();
+        let result: i64 = engine.run_main("fn main() -> int { 42 }").unwrap();
         assert_eq!(result, 42);
     }
 

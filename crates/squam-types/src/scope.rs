@@ -1,5 +1,5 @@
+use crate::types::{GenericVar, Symbol, TypeId};
 use rustc_hash::FxHashMap;
-use crate::types::{TypeId, Symbol, GenericVar};
 use squam_lexer::Span;
 
 /// A binding in the symbol table.
@@ -80,7 +80,10 @@ impl SymbolTable {
 
     /// Get the current scope kind.
     pub fn current_scope_kind(&self) -> ScopeKind {
-        self.scopes.last().map(|s| s.kind).unwrap_or(ScopeKind::Module)
+        self.scopes
+            .last()
+            .map(|s| s.kind)
+            .unwrap_or(ScopeKind::Module)
     }
 
     /// Define a new binding in the current scope.
@@ -140,7 +143,10 @@ impl SymbolTable {
 
     /// Get all bindings in the current scope.
     pub fn current_bindings(&self) -> impl Iterator<Item = &Binding> {
-        self.scopes.last().into_iter().flat_map(|s| s.bindings.values())
+        self.scopes
+            .last()
+            .into_iter()
+            .flat_map(|s| s.bindings.values())
     }
 }
 
@@ -392,14 +398,21 @@ impl TraitNamespace {
     pub fn impls_of_trait(&self, trait_name: &str) -> Vec<&ImplDef> {
         self.impls
             .iter()
-            .filter(|i| i.trait_name.as_ref().map_or(false, |n| n.as_ref() == trait_name))
+            .filter(|i| {
+                i.trait_name
+                    .as_ref()
+                    .is_some_and(|n| n.as_ref() == trait_name)
+            })
             .collect()
     }
 
     /// Check if a type implements a trait.
     pub fn type_implements_trait(&self, ty: TypeId, trait_name: &str) -> bool {
         self.impls.iter().any(|i| {
-            i.self_ty == ty && i.trait_name.as_ref().map_or(false, |n| n.as_ref() == trait_name)
+            i.self_ty == ty
+                && i.trait_name
+                    .as_ref()
+                    .is_some_and(|n| n.as_ref() == trait_name)
         })
     }
 
@@ -484,23 +497,27 @@ mod tests {
         let mut table = SymbolTable::new();
 
         // Define x in outer scope
-        table.define(Binding {
-            name: "x".into(),
-            ty: TypeId::I32,
-            mutable: false,
-            span: Span::dummy(),
-            kind: BindingKind::Local,
-        }).unwrap();
+        table
+            .define(Binding {
+                name: "x".into(),
+                ty: TypeId::I32,
+                mutable: false,
+                span: Span::dummy(),
+                kind: BindingKind::Local,
+            })
+            .unwrap();
 
         // Push new scope and define x again
         table.push_scope(ScopeKind::Block);
-        table.define(Binding {
-            name: "x".into(),
-            ty: TypeId::I64,
-            mutable: true,
-            span: Span::dummy(),
-            kind: BindingKind::Local,
-        }).unwrap();
+        table
+            .define(Binding {
+                name: "x".into(),
+                ty: TypeId::I64,
+                mutable: true,
+                span: Span::dummy(),
+                kind: BindingKind::Local,
+            })
+            .unwrap();
 
         // Should find inner x
         let found = table.lookup("x").unwrap();

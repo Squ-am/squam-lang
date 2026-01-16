@@ -22,9 +22,7 @@ fn to_key(value: &Value) -> String {
 /// Register HashMap functions with the VM.
 pub fn register(vm: &mut VM) {
     // Create a new empty HashMap
-    vm.define_native("hashmap_new", 0, |_args| {
-        Ok(new_hashmap())
-    });
+    vm.define_native("hashmap_new", 0, |_args| Ok(new_hashmap()));
 
     // Insert a key-value pair
     vm.define_native("hashmap_insert", 3, |args| {
@@ -120,7 +118,8 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
                 let fields = s.fields().borrow();
-                let keys: Vec<Value> = fields.keys()
+                let keys: Vec<Value> = fields
+                    .keys()
                     .map(|k| {
                         // Parse the key back to a Value
                         if let Some(rest) = k.strip_prefix("i:") {
@@ -161,6 +160,9 @@ mod tests {
     fn test_to_key() {
         assert_eq!(to_key(&Value::Int(42)), "i:42");
         assert_eq!(to_key(&Value::Bool(true)), "b:true");
-        assert_eq!(to_key(&Value::String(Rc::new("hello".to_string()))), "s:hello");
+        assert_eq!(
+            to_key(&Value::String(Rc::new("hello".to_string()))),
+            "s:hello"
+        );
     }
 }

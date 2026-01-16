@@ -76,11 +76,17 @@ pub enum Ty {
     /// Tuple type: `(T, U, V)`
     Tuple(Vec<TypeId>),
     /// Array type: `[T; N]`
-    Array { element: TypeId, size: usize },
+    Array {
+        element: TypeId,
+        size: usize,
+    },
     /// Slice type: `[T]`
     Slice(TypeId),
     /// Reference type: `&T` or `&mut T`
-    Reference { mutable: bool, inner: TypeId },
+    Reference {
+        mutable: bool,
+        inner: TypeId,
+    },
 
     // User-Defined Types
     /// A struct type

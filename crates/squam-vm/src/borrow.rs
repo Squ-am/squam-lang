@@ -7,20 +7,15 @@ use std::fmt;
 // ---
 
 /// The state of borrows for a value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorrowState {
     /// No active borrows
+    #[default]
     Unused,
     /// One or more immutable borrows
     Reading(u32),
     /// One mutable borrow
     Writing,
-}
-
-impl Default for BorrowState {
-    fn default() -> Self {
-        BorrowState::Unused
-    }
 }
 
 impl BorrowState {

@@ -1,21 +1,21 @@
-pub mod io;
-pub mod iter;
-pub mod math;
-pub mod option;
-pub mod result;
-pub mod hashmap;
-pub mod hashset;
-pub mod string;
-pub mod vec;
 pub mod box_type;
-pub mod net;
-#[cfg(feature = "http")]
-pub mod http;
-pub mod json;
-pub mod time;
-pub mod random;
 pub mod crypto;
 pub mod fs;
+pub mod hashmap;
+pub mod hashset;
+#[cfg(feature = "http")]
+pub mod http;
+pub mod io;
+pub mod iter;
+pub mod json;
+pub mod math;
+pub mod net;
+pub mod option;
+pub mod random;
+pub mod result;
+pub mod string;
+pub mod time;
+pub mod vec;
 
 use squam_vm::{Value, VM};
 use std::rc::Rc;
@@ -58,7 +58,12 @@ fn register_core(vm: &mut VM) {
             Value::Array(_) => "array",
             Value::Tuple(_) => "tuple",
             Value::Struct(s) => return Ok(Value::String(Rc::new(format!("struct:{}", s.name)))),
-            Value::Enum(e) => return Ok(Value::String(Rc::new(format!("enum:{}::{}", e.enum_name, e.variant)))),
+            Value::Enum(e) => {
+                return Ok(Value::String(Rc::new(format!(
+                    "enum:{}::{}",
+                    e.enum_name, e.variant
+                ))))
+            }
             Value::Closure(_) => "function",
             Value::Native(_) => "function",
             Value::VMNative(_) => "function",
@@ -97,7 +102,10 @@ fn register_core(vm: &mut VM) {
 
     // is_function(value) -> bool
     vm.define_native("is_function", 1, |args| {
-        Ok(Value::Bool(matches!(&args[0], Value::Closure(_) | Value::Native(_) | Value::VMNative(_))))
+        Ok(Value::Bool(matches!(
+            &args[0],
+            Value::Closure(_) | Value::Native(_) | Value::VMNative(_)
+        )))
     });
 
     // is_unit(value) -> bool
@@ -175,7 +183,8 @@ mod tests {
 
     #[test]
     fn test_string_concat() {
-        let result = run_with_stdlib("fn main() -> string { str_concat(\"hello\", \" world\") }").unwrap();
+        let result =
+            run_with_stdlib("fn main() -> string { str_concat(\"hello\", \" world\") }").unwrap();
         assert_eq!(result, Value::String(Rc::new("hello world".to_string())));
     }
 
@@ -277,31 +286,38 @@ mod tests {
 
     #[test]
     fn test_hashmap_basic() {
-        let result = run_with_stdlib(r#"
+        let result = run_with_stdlib(
+            r#"
             fn main() -> int {
                 let m = hashmap_new();
                 hashmap_insert(m, "key", 42);
                 unwrap(hashmap_get(m, "key"))
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert_eq!(result, Value::Int(42));
     }
 
     #[test]
     fn test_hashmap_contains() {
-        let result = run_with_stdlib(r#"
+        let result = run_with_stdlib(
+            r#"
             fn main() -> bool {
                 let m = hashmap_new();
                 hashmap_insert(m, "key", 42);
                 hashmap_contains(m, "key")
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_hashmap_len() {
-        let result = run_with_stdlib(r#"
+        let result = run_with_stdlib(
+            r#"
             fn main() -> int {
                 let m = hashmap_new();
                 hashmap_insert(m, "a", 1);
@@ -309,25 +325,31 @@ mod tests {
                 hashmap_insert(m, "c", 3);
                 hashmap_len(m)
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn test_hashset_basic() {
-        let result = run_with_stdlib(r#"
+        let result = run_with_stdlib(
+            r#"
             fn main() -> bool {
                 let s = hashset_new();
                 hashset_insert(s, 42);
                 hashset_contains(s, 42)
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn test_hashset_len() {
-        let result = run_with_stdlib(r#"
+        let result = run_with_stdlib(
+            r#"
             fn main() -> int {
                 let s = hashset_new();
                 hashset_insert(s, 1);
@@ -335,7 +357,9 @@ mod tests {
                 hashset_insert(s, 2);
                 hashset_len(s)
             }
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert_eq!(result, Value::Int(2)); // Duplicates not counted
     }
 }

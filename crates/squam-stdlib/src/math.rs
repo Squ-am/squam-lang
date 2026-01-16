@@ -9,38 +9,30 @@ pub fn register(vm: &mut VM) {
     });
 
     // min(a: int|float, b: int|float) -> int|float
-    vm.define_native("min", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(*a.min(b))),
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.min(*b))),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).min(*b))),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.min(*b as f64))),
-            _ => Err("min: expected two numbers".to_string()),
-        }
+    vm.define_native("min", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(*a.min(b))),
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.min(*b))),
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).min(*b))),
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.min(*b as f64))),
+        _ => Err("min: expected two numbers".to_string()),
     });
 
     // max(a: int|float, b: int|float) -> int|float
-    vm.define_native("max", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(*a.max(b))),
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.max(*b))),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).max(*b))),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.max(*b as f64))),
-            _ => Err("max: expected two numbers".to_string()),
-        }
+    vm.define_native("max", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(*a.max(b))),
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.max(*b))),
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).max(*b))),
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.max(*b as f64))),
+        _ => Err("max: expected two numbers".to_string()),
     });
 
     // clamp(x: int|float, min: int|float, max: int|float) -> int|float
-    vm.define_native("clamp", 3, |args| {
-        match (&args[0], &args[1], &args[2]) {
-            (Value::Int(x), Value::Int(min), Value::Int(max)) => {
-                Ok(Value::Int(*x.max(min).min(max)))
-            }
-            (Value::Float(x), Value::Float(min), Value::Float(max)) => {
-                Ok(Value::Float(x.max(*min).min(*max)))
-            }
-            _ => Err("clamp: expected three numbers of same type".to_string()),
+    vm.define_native("clamp", 3, |args| match (&args[0], &args[1], &args[2]) {
+        (Value::Int(x), Value::Int(min), Value::Int(max)) => Ok(Value::Int(*x.max(min).min(max))),
+        (Value::Float(x), Value::Float(min), Value::Float(max)) => {
+            Ok(Value::Float(x.max(*min).min(*max)))
         }
+        _ => Err("clamp: expected three numbers of same type".to_string()),
     });
 
     // floor(x: float) -> int
@@ -79,20 +71,18 @@ pub fn register(vm: &mut VM) {
     });
 
     // pow(base: float, exp: float) -> float
-    vm.define_native("pow", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(base), Value::Int(exp)) => {
-                if *exp >= 0 {
-                    Ok(Value::Int(base.pow(*exp as u32)))
-                } else {
-                    Ok(Value::Float((*base as f64).powi(*exp as i32)))
-                }
+    vm.define_native("pow", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(base), Value::Int(exp)) => {
+            if *exp >= 0 {
+                Ok(Value::Int(base.pow(*exp as u32)))
+            } else {
+                Ok(Value::Float((*base as f64).powi(*exp as i32)))
             }
-            (Value::Float(base), Value::Float(exp)) => Ok(Value::Float(base.powf(*exp))),
-            (Value::Int(base), Value::Float(exp)) => Ok(Value::Float((*base as f64).powf(*exp))),
-            (Value::Float(base), Value::Int(exp)) => Ok(Value::Float(base.powi(*exp as i32))),
-            _ => Err("pow: expected two numbers".to_string()),
         }
+        (Value::Float(base), Value::Float(exp)) => Ok(Value::Float(base.powf(*exp))),
+        (Value::Int(base), Value::Float(exp)) => Ok(Value::Float((*base as f64).powf(*exp))),
+        (Value::Float(base), Value::Int(exp)) => Ok(Value::Float(base.powi(*exp as i32))),
+        _ => Err("pow: expected two numbers".to_string()),
     });
 
     // exp(x: float) -> float
@@ -166,14 +156,12 @@ pub fn register(vm: &mut VM) {
     });
 
     // atan2(y: float, x: float) -> float
-    vm.define_native("atan2", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Float(y), Value::Float(x)) => Ok(Value::Float(y.atan2(*x))),
-            (Value::Int(y), Value::Int(x)) => Ok(Value::Float((*y as f64).atan2(*x as f64))),
-            (Value::Float(y), Value::Int(x)) => Ok(Value::Float(y.atan2(*x as f64))),
-            (Value::Int(y), Value::Float(x)) => Ok(Value::Float((*y as f64).atan2(*x))),
-            _ => Err("atan2: expected two numbers".to_string()),
-        }
+    vm.define_native("atan2", 2, |args| match (&args[0], &args[1]) {
+        (Value::Float(y), Value::Float(x)) => Ok(Value::Float(y.atan2(*x))),
+        (Value::Int(y), Value::Int(x)) => Ok(Value::Float((*y as f64).atan2(*x as f64))),
+        (Value::Float(y), Value::Int(x)) => Ok(Value::Float(y.atan2(*x as f64))),
+        (Value::Int(y), Value::Float(x)) => Ok(Value::Float((*y as f64).atan2(*x))),
+        _ => Err("atan2: expected two numbers".to_string()),
     });
 
     // sinh(x: float) -> float
@@ -220,21 +208,30 @@ pub fn register(vm: &mut VM) {
     vm.define_native("is_nan", 1, |args| match &args[0] {
         Value::Float(n) => Ok(Value::Bool(n.is_nan())),
         Value::Int(_) => Ok(Value::Bool(false)),
-        other => Err(format!("is_nan: expected number, got {}", other.type_name())),
+        other => Err(format!(
+            "is_nan: expected number, got {}",
+            other.type_name()
+        )),
     });
 
     // is_infinite(x: float) -> bool
     vm.define_native("is_infinite", 1, |args| match &args[0] {
         Value::Float(n) => Ok(Value::Bool(n.is_infinite())),
         Value::Int(_) => Ok(Value::Bool(false)),
-        other => Err(format!("is_infinite: expected number, got {}", other.type_name())),
+        other => Err(format!(
+            "is_infinite: expected number, got {}",
+            other.type_name()
+        )),
     });
 
     // is_finite(x: float) -> bool
     vm.define_native("is_finite", 1, |args| match &args[0] {
         Value::Float(n) => Ok(Value::Bool(n.is_finite())),
         Value::Int(_) => Ok(Value::Bool(true)),
-        other => Err(format!("is_finite: expected number, got {}", other.type_name())),
+        other => Err(format!(
+            "is_finite: expected number, got {}",
+            other.type_name()
+        )),
     });
 
     // sign(x: int|float) -> int (-1, 0, or 1)
@@ -248,14 +245,20 @@ pub fn register(vm: &mut VM) {
     vm.define_native("to_float", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Float(*n as f64)),
         Value::Float(n) => Ok(Value::Float(*n)),
-        other => Err(format!("to_float: expected number, got {}", other.type_name())),
+        other => Err(format!(
+            "to_float: expected number, got {}",
+            other.type_name()
+        )),
     });
 
     // to_int(x: float) -> int
     vm.define_native("to_int", 1, |args| match &args[0] {
         Value::Float(n) => Ok(Value::Int(*n as i64)),
         Value::Int(n) => Ok(Value::Int(*n)),
-        other => Err(format!("to_int: expected number, got {}", other.type_name())),
+        other => Err(format!(
+            "to_int: expected number, got {}",
+            other.type_name()
+        )),
     });
 
     // --- Unsigned integer operations ---
@@ -306,91 +309,95 @@ pub fn register(vm: &mut VM) {
     // in_u8_range(x: int) -> bool
     vm.define_native("in_u8_range", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Bool(*n >= 0 && *n <= 255)),
-        other => Err(format!("in_u8_range: expected int, got {}", other.type_name())),
+        other => Err(format!(
+            "in_u8_range: expected int, got {}",
+            other.type_name()
+        )),
     });
 
     // in_u16_range(x: int) -> bool
     vm.define_native("in_u16_range", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Bool(*n >= 0 && *n <= 65535)),
-        other => Err(format!("in_u16_range: expected int, got {}", other.type_name())),
+        other => Err(format!(
+            "in_u16_range: expected int, got {}",
+            other.type_name()
+        )),
     });
 
     // in_u32_range(x: int) -> bool
     vm.define_native("in_u32_range", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Bool(*n >= 0 && *n <= 4294967295)),
-        other => Err(format!("in_u32_range: expected int, got {}", other.type_name())),
+        other => Err(format!(
+            "in_u32_range: expected int, got {}",
+            other.type_name()
+        )),
     });
 
     // Bitwise operations that treat value as unsigned
     // wrapping_add_u32(a: int, b: int) -> int
-    vm.define_native("wrapping_add_u32", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => {
-                let result = (*a as u32).wrapping_add(*b as u32);
-                Ok(Value::Int(result as i64))
-            }
-            _ => Err("wrapping_add_u32: expected two ints".to_string()),
+    vm.define_native("wrapping_add_u32", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => {
+            let result = (*a as u32).wrapping_add(*b as u32);
+            Ok(Value::Int(result as i64))
         }
+        _ => Err("wrapping_add_u32: expected two ints".to_string()),
     });
 
     // wrapping_sub_u32(a: int, b: int) -> int
-    vm.define_native("wrapping_sub_u32", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => {
-                let result = (*a as u32).wrapping_sub(*b as u32);
-                Ok(Value::Int(result as i64))
-            }
-            _ => Err("wrapping_sub_u32: expected two ints".to_string()),
+    vm.define_native("wrapping_sub_u32", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => {
+            let result = (*a as u32).wrapping_sub(*b as u32);
+            Ok(Value::Int(result as i64))
         }
+        _ => Err("wrapping_sub_u32: expected two ints".to_string()),
     });
 
     // wrapping_mul_u32(a: int, b: int) -> int
-    vm.define_native("wrapping_mul_u32", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => {
-                let result = (*a as u32).wrapping_mul(*b as u32);
-                Ok(Value::Int(result as i64))
-            }
-            _ => Err("wrapping_mul_u32: expected two ints".to_string()),
+    vm.define_native("wrapping_mul_u32", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => {
+            let result = (*a as u32).wrapping_mul(*b as u32);
+            Ok(Value::Int(result as i64))
         }
+        _ => Err("wrapping_mul_u32: expected two ints".to_string()),
     });
 
     // Bit manipulation
     // bit_count(x: int) -> int (count set bits)
     vm.define_native("bit_count", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Int(n.count_ones() as i64)),
-        other => Err(format!("bit_count: expected int, got {}", other.type_name())),
+        other => Err(format!(
+            "bit_count: expected int, got {}",
+            other.type_name()
+        )),
     });
 
     // leading_zeros(x: int) -> int
     vm.define_native("leading_zeros", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Int(n.leading_zeros() as i64)),
-        other => Err(format!("leading_zeros: expected int, got {}", other.type_name())),
+        other => Err(format!(
+            "leading_zeros: expected int, got {}",
+            other.type_name()
+        )),
     });
 
     // trailing_zeros(x: int) -> int
     vm.define_native("trailing_zeros", 1, |args| match &args[0] {
         Value::Int(n) => Ok(Value::Int(n.trailing_zeros() as i64)),
-        other => Err(format!("trailing_zeros: expected int, got {}", other.type_name())),
+        other => Err(format!(
+            "trailing_zeros: expected int, got {}",
+            other.type_name()
+        )),
     });
 
     // rotate_left(x: int, n: int) -> int
-    vm.define_native("rotate_left", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(x), Value::Int(n)) => {
-                Ok(Value::Int(x.rotate_left(*n as u32)))
-            }
-            _ => Err("rotate_left: expected two ints".to_string()),
-        }
+    vm.define_native("rotate_left", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(x), Value::Int(n)) => Ok(Value::Int(x.rotate_left(*n as u32))),
+        _ => Err("rotate_left: expected two ints".to_string()),
     });
 
     // rotate_right(x: int, n: int) -> int
-    vm.define_native("rotate_right", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(x), Value::Int(n)) => {
-                Ok(Value::Int(x.rotate_right(*n as u32)))
-            }
-            _ => Err("rotate_right: expected two ints".to_string()),
-        }
+    vm.define_native("rotate_right", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(x), Value::Int(n)) => Ok(Value::Int(x.rotate_right(*n as u32))),
+        _ => Err("rotate_right: expected two ints".to_string()),
     });
 }

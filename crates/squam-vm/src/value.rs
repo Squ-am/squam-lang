@@ -61,12 +61,15 @@ pub enum Upvalue {
     Closed(Value),
 }
 
+/// Type alias for native function implementation.
+pub type NativeFn = dyn Fn(&mut [Value]) -> Result<Value, String>;
+
 /// A native (Rust) function callable from Squam.
 #[derive(Clone)]
 pub struct NativeFunction {
     pub name: String,
     pub arity: u8,
-    pub func: Rc<dyn Fn(&mut [Value]) -> Result<Value, String>>,
+    pub func: Rc<NativeFn>,
 }
 
 /// ID for a native function that requires VM access.
@@ -131,7 +134,9 @@ impl StructInstance {
             self.field_values.borrow_mut()[idx] = value;
             true
         } else if self.dynamic_fields.borrow().contains_key(name) {
-            self.dynamic_fields.borrow_mut().insert(name.to_string(), value);
+            self.dynamic_fields
+                .borrow_mut()
+                .insert(name.to_string(), value);
             true
         } else {
             false
@@ -228,6 +233,7 @@ impl SquamIterator for ArrayIterator {
 
 impl Value {
     /// Check if value is truthy.
+    #[inline]
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Unit => false,
@@ -243,6 +249,7 @@ impl Value {
     }
 
     /// Get the type name of this value.
+    #[inline]
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Unit => "()",
@@ -258,7 +265,13 @@ impl Value {
             Value::Struct(_) => "struct",
             Value::Enum(_) => "enum",
             Value::Iterator(_) => "iterator",
-            Value::LocalRef(_, mutable) => if *mutable { "&mut" } else { "&" },
+            Value::LocalRef(_, mutable) => {
+                if *mutable {
+                    "&mut"
+                } else {
+                    "&"
+                }
+            }
             Value::Box(_) => "Box",
             Value::VMNative(_) => "native function",
         }
@@ -294,11 +307,9 @@ impl fmt::Debug for Value {
                 }
                 write!(f, "]")
             }
-            Value::Closure(c) => write!(
-                f,
-                "<fn {}>",
-                c.proto.name.as_deref().unwrap_or("anonymous")
-            ),
+            Value::Closure(c) => {
+                write!(f, "<fn {}>", c.proto.name.as_deref().unwrap_or("anonymous"))
+            }
             Value::Native(n) => write!(f, "<native {}>", n.name),
             Value::Struct(s) => write!(f, "{} {{ ... }}", s.name),
             Value::Range(start, end, inclusive) => {
@@ -354,11 +365,9 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
-            Value::Closure(c) => write!(
-                f,
-                "<fn {}>",
-                c.proto.name.as_deref().unwrap_or("anonymous")
-            ),
+            Value::Closure(c) => {
+                write!(f, "<fn {}>", c.proto.name.as_deref().unwrap_or("anonymous"))
+            }
             Value::Native(n) => write!(f, "<native {}>", n.name),
             Value::Struct(s) => write!(f, "{} {{ ... }}", s.name),
             Value::Range(start, end, inclusive) => {
@@ -394,7 +403,9 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
-            (Value::Range(s1, e1, i1), Value::Range(s2, e2, i2)) => s1 == s2 && e1 == e2 && i1 == i2,
+            (Value::Range(s1, e1, i1), Value::Range(s2, e2, i2)) => {
+                s1 == s2 && e1 == e2 && i1 == i2
+            }
             _ => false,
         }
     }
@@ -407,7 +418,11 @@ impl PartialEq for Value {
 impl Trace for Value {
     fn trace(&self, tracer: &mut Tracer) {
         match self {
-            Value::Unit | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Range(_, _, _) => {
+            Value::Unit
+            | Value::Bool(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::Range(_, _, _) => {
                 // Primitives don't need tracing
             }
             Value::String(_) => {

@@ -7,18 +7,13 @@ use std::time::{Duration, Instant};
 // ---
 
 /// The memory management mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MemoryMode {
     /// Reference counting (default) - uses Rust's Rc
+    #[default]
     RefCounting,
     /// Mark-sweep garbage collection
     MarkSweep,
-}
-
-impl Default for MemoryMode {
-    fn default() -> Self {
-        MemoryMode::RefCounting
-    }
 }
 
 // ---
@@ -141,7 +136,8 @@ impl MemoryProfiler {
 
     /// Get current live allocation count.
     pub fn live_allocations(&self) -> usize {
-        self.allocation_count.saturating_sub(self.deallocation_count)
+        self.allocation_count
+            .saturating_sub(self.deallocation_count)
     }
 
     /// Get memory statistics snapshot.
@@ -191,14 +187,17 @@ impl MemoryProfiler {
         ));
 
         if stats.gc_collection_count > 0 {
-            report.push_str(&format!("\n=== GC Statistics ===\n"));
-            report.push_str(&format!("Collections:       {}\n", stats.gc_collection_count));
+            report.push_str("\n=== GC Statistics ===\n");
+            report.push_str(&format!(
+                "Collections:       {}\n",
+                stats.gc_collection_count
+            ));
             report.push_str(&format!("Total GC Time:     {:?}\n", stats.total_gc_time));
             report.push_str(&format!("Avg GC Time:       {:?}\n", stats.avg_gc_time));
         }
 
         if self.detailed_tracking && !self.allocations.is_empty() {
-            report.push_str(&format!("\n=== Live Allocations by Type ===\n"));
+            report.push_str("\n=== Live Allocations by Type ===\n");
 
             // Group allocations by type
             let mut by_type: HashMap<&str, (usize, usize)> = HashMap::new();

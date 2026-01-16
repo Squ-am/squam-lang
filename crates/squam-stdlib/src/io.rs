@@ -46,15 +46,11 @@ pub fn register(vm: &mut VM) {
 
     // clone_value(value: any) -> any
     // Explicitly clone a value (in Squam, values are cloned on assignment anyway)
-    vm.define_native("clone_value", 1, |args| {
-        Ok(args[0].clone())
-    });
+    vm.define_native("clone_value", 1, |args| Ok(args[0].clone()));
 
     // equals(a: any, b: any) -> bool
     // Explicit equality check (same as == operator)
-    vm.define_native("equals", 2, |args| {
-        Ok(Value::Bool(args[0] == args[1]))
-    });
+    vm.define_native("equals", 2, |args| Ok(Value::Bool(args[0] == args[1])));
 
     // read_line() -> string
     vm.define_native("read_line", 0, |_args| {
@@ -93,7 +89,10 @@ pub fn register(vm: &mut VM) {
             }
             Ok(Value::String(Rc::new(line)))
         }
-        other => Err(format!("input: expected string prompt, got {}", other.type_name())),
+        other => Err(format!(
+            "input: expected string prompt, got {}",
+            other.type_name()
+        )),
     });
 
     // assert(condition: bool) -> ()
@@ -114,17 +113,12 @@ pub fn register(vm: &mut VM) {
         if args[0] == args[1] {
             Ok(Value::Unit)
         } else {
-            Err(format!(
-                "assertion failed: {:?} != {:?}",
-                args[0], args[1]
-            ))
+            Err(format!("assertion failed: {:?} != {:?}", args[0], args[1]))
         }
     });
 
     // panic(message: string) -> !
-    vm.define_native("panic", 1, |args| {
-        Err(format!("panic: {}", args[0]))
-    });
+    vm.define_native("panic", 1, |args| Err(format!("panic: {}", args[0])));
 
     // unreachable() -> !
     vm.define_native("unreachable", 0, |_args| {
@@ -132,9 +126,7 @@ pub fn register(vm: &mut VM) {
     });
 
     // todo() -> !
-    vm.define_native("todo", 0, |_args| {
-        Err("not yet implemented".to_string())
-    });
+    vm.define_native("todo", 0, |_args| Err("not yet implemented".to_string()));
 
     // dbg(value: any) -> any
     // Like Rust's dbg! macro - prints and returns the value
@@ -151,88 +143,91 @@ pub fn register(vm: &mut VM) {
             let result = template.replacen("{}", &format!("{}", args[1]), 1);
             Ok(Value::String(Rc::new(result)))
         }
-        other => Err(format!("format: expected string template, got {}", other.type_name())),
+        other => Err(format!(
+            "format: expected string template, got {}",
+            other.type_name()
+        )),
     });
 
     // read_file(path: string) -> string
     vm.define_native("read_file", 1, |args| match &args[0] {
-        Value::String(path) => {
-            std::fs::read_to_string(path.as_str())
-                .map(|s| Value::String(Rc::new(s)))
-                .map_err(|e| format!("read_file: {}", e))
-        }
-        other => Err(format!("read_file: expected string path, got {}", other.type_name())),
+        Value::String(path) => std::fs::read_to_string(path.as_str())
+            .map(|s| Value::String(Rc::new(s)))
+            .map_err(|e| format!("read_file: {}", e)),
+        other => Err(format!(
+            "read_file: expected string path, got {}",
+            other.type_name()
+        )),
     });
 
     // write_file(path: string, content: string) -> ()
-    vm.define_native("write_file", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::String(path), Value::String(content)) => {
-                std::fs::write(path.as_str(), content.as_str())
-                    .map(|_| Value::Unit)
-                    .map_err(|e| format!("write_file: {}", e))
-            }
-            _ => Err("write_file: expected (string, string)".to_string()),
+    vm.define_native("write_file", 2, |args| match (&args[0], &args[1]) {
+        (Value::String(path), Value::String(content)) => {
+            std::fs::write(path.as_str(), content.as_str())
+                .map(|_| Value::Unit)
+                .map_err(|e| format!("write_file: {}", e))
         }
+        _ => Err("write_file: expected (string, string)".to_string()),
     });
 
     // append_file(path: string, content: string) -> ()
-    vm.define_native("append_file", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::String(path), Value::String(content)) => {
-                use std::fs::OpenOptions;
-                OpenOptions::new()
-                    .append(true)
-                    .create(true)
-                    .open(path.as_str())
-                    .and_then(|mut f| f.write_all(content.as_bytes()))
-                    .map(|_| Value::Unit)
-                    .map_err(|e| format!("append_file: {}", e))
-            }
-            _ => Err("append_file: expected (string, string)".to_string()),
+    vm.define_native("append_file", 2, |args| match (&args[0], &args[1]) {
+        (Value::String(path), Value::String(content)) => {
+            use std::fs::OpenOptions;
+            OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(path.as_str())
+                .and_then(|mut f| f.write_all(content.as_bytes()))
+                .map(|_| Value::Unit)
+                .map_err(|e| format!("append_file: {}", e))
         }
+        _ => Err("append_file: expected (string, string)".to_string()),
     });
 
     // file_exists(path: string) -> bool
     vm.define_native("file_exists", 1, |args| match &args[0] {
         Value::String(path) => Ok(Value::Bool(std::path::Path::new(path.as_str()).exists())),
-        other => Err(format!("file_exists: expected string, got {}", other.type_name())),
+        other => Err(format!(
+            "file_exists: expected string, got {}",
+            other.type_name()
+        )),
     });
 
     // read_lines(path: string) -> array
     vm.define_native("read_lines", 1, |args| match &args[0] {
         Value::String(path) => {
-            let content = std::fs::read_to_string(path.as_str())
-                .map_err(|e| format!("read_lines: {}", e))?;
+            let content =
+                std::fs::read_to_string(path.as_str()).map_err(|e| format!("read_lines: {}", e))?;
             let lines: Vec<Value> = content
                 .lines()
                 .map(|l| Value::String(Rc::new(l.to_string())))
                 .collect();
             Ok(Value::Array(Rc::new(RefCell::new(lines))))
         }
-        other => Err(format!("read_lines: expected string, got {}", other.type_name())),
+        other => Err(format!(
+            "read_lines: expected string, got {}",
+            other.type_name()
+        )),
     });
 
     // env_var(name: string) -> string
     vm.define_native("env_var", 1, |args| match &args[0] {
-        Value::String(name) => {
-            std::env::var(name.as_str())
-                .map(|v| Value::String(Rc::new(v)))
-                .map_err(|_| format!("env_var: {} not found", name))
-        }
-        other => Err(format!("env_var: expected string, got {}", other.type_name())),
+        Value::String(name) => std::env::var(name.as_str())
+            .map(|v| Value::String(Rc::new(v)))
+            .map_err(|_| format!("env_var: {} not found", name)),
+        other => Err(format!(
+            "env_var: expected string, got {}",
+            other.type_name()
+        )),
     });
 
     // env_var_or(name: string, default: string) -> string
-    vm.define_native("env_var_or", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::String(name), Value::String(default)) => {
-                Ok(Value::String(Rc::new(
-                    std::env::var(name.as_str()).unwrap_or_else(|_| default.to_string()),
-                )))
-            }
-            _ => Err("env_var_or: expected (string, string)".to_string()),
-        }
+    vm.define_native("env_var_or", 2, |args| match (&args[0], &args[1]) {
+        (Value::String(name), Value::String(default)) => Ok(Value::String(Rc::new(
+            std::env::var(name.as_str()).unwrap_or_else(|_| default.to_string()),
+        ))),
+        _ => Err("env_var_or: expected (string, string)".to_string()),
     });
 
     // args() -> array

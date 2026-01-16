@@ -29,35 +29,31 @@ pub fn register(vm: &mut VM) {
     });
 
     // sleep(ms: int) -> ()
-    vm.define_native("sleep", 1, |args| {
-        match &args[0] {
-            Value::Int(ms) => {
-                if *ms > 0 {
-                    thread::sleep(Duration::from_millis(*ms as u64));
-                }
-                Ok(Value::Unit)
+    vm.define_native("sleep", 1, |args| match &args[0] {
+        Value::Int(ms) => {
+            if *ms > 0 {
+                thread::sleep(Duration::from_millis(*ms as u64));
             }
-            _ => Err("sleep: expected int (milliseconds)".to_string()),
+            Ok(Value::Unit)
         }
+        _ => Err("sleep: expected int (milliseconds)".to_string()),
     });
 
     // sleep_secs(secs: float) -> ()
-    vm.define_native("sleep_secs", 1, |args| {
-        match &args[0] {
-            Value::Float(secs) => {
-                if *secs > 0.0 {
-                    thread::sleep(Duration::from_secs_f64(*secs));
-                }
-                Ok(Value::Unit)
+    vm.define_native("sleep_secs", 1, |args| match &args[0] {
+        Value::Float(secs) => {
+            if *secs > 0.0 {
+                thread::sleep(Duration::from_secs_f64(*secs));
             }
-            Value::Int(secs) => {
-                if *secs > 0 {
-                    thread::sleep(Duration::from_secs(*secs as u64));
-                }
-                Ok(Value::Unit)
-            }
-            _ => Err("sleep_secs: expected number".to_string()),
+            Ok(Value::Unit)
         }
+        Value::Int(secs) => {
+            if *secs > 0 {
+                thread::sleep(Duration::from_secs(*secs as u64));
+            }
+            Ok(Value::Unit)
+        }
+        _ => Err("sleep_secs: expected number".to_string()),
     });
 
     // Instant-based timing for performance measurement

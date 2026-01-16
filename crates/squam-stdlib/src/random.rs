@@ -1,5 +1,5 @@
-use squam_vm::{Value, VM};
 use rand::Rng;
+use squam_vm::{Value, VM};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -11,17 +11,15 @@ pub fn register(vm: &mut VM) {
     });
 
     // random_int(min: int, max: int) -> int (inclusive range)
-    vm.define_native("random_int", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Int(min), Value::Int(max)) => {
-                if max < min {
-                    return Err("random_int: max must be >= min".to_string());
-                }
-                let mut rng = rand::thread_rng();
-                Ok(Value::Int(rng.gen_range(*min..=*max)))
+    vm.define_native("random_int", 2, |args| match (&args[0], &args[1]) {
+        (Value::Int(min), Value::Int(max)) => {
+            if max < min {
+                return Err("random_int: max must be >= min".to_string());
             }
-            _ => Err("random_int: expected (int, int)".to_string()),
+            let mut rng = rand::thread_rng();
+            Ok(Value::Int(rng.gen_range(*min..=*max)))
         }
+        _ => Err("random_int: expected (int, int)".to_string()),
     });
 
     // random_float(min: float, max: float) -> float
@@ -50,19 +48,17 @@ pub fn register(vm: &mut VM) {
     });
 
     // random_choice(arr: [T]) -> T (random element from array)
-    vm.define_native("random_choice", 1, |args| {
-        match &args[0] {
-            Value::Array(arr) => {
-                let arr = arr.borrow();
-                if arr.is_empty() {
-                    return Err("random_choice: array is empty".to_string());
-                }
-                let mut rng = rand::thread_rng();
-                let idx = rng.gen_range(0..arr.len());
-                Ok(arr[idx].clone())
+    vm.define_native("random_choice", 1, |args| match &args[0] {
+        Value::Array(arr) => {
+            let arr = arr.borrow();
+            if arr.is_empty() {
+                return Err("random_choice: array is empty".to_string());
             }
-            _ => Err("random_choice: expected array".to_string()),
+            let mut rng = rand::thread_rng();
+            let idx = rng.gen_range(0..arr.len());
+            Ok(arr[idx].clone())
         }
+        _ => Err("random_choice: expected array".to_string()),
     });
 
     // shuffle(arr: [T]) -> [T] (returns new shuffled array)
@@ -83,27 +79,25 @@ pub fn register(vm: &mut VM) {
     });
 
     // random_string(len: int) -> string (alphanumeric)
-    vm.define_native("random_string", 1, |args| {
-        match &args[0] {
-            Value::Int(len) => {
-                if *len < 0 {
-                    return Err("random_string: length must be >= 0".to_string());
-                }
-                let mut rng = rand::thread_rng();
-                let chars: String = (0..*len as usize)
-                    .map(|_| {
-                        let idx = rng.gen_range(0..62);
-                        match idx {
-                            0..=25 => (b'a' + idx as u8) as char,
-                            26..=51 => (b'A' + (idx - 26) as u8) as char,
-                            _ => (b'0' + (idx - 52) as u8) as char,
-                        }
-                    })
-                    .collect();
-                Ok(Value::String(Rc::new(chars)))
+    vm.define_native("random_string", 1, |args| match &args[0] {
+        Value::Int(len) => {
+            if *len < 0 {
+                return Err("random_string: length must be >= 0".to_string());
             }
-            _ => Err("random_string: expected int".to_string()),
+            let mut rng = rand::thread_rng();
+            let chars: String = (0..*len as usize)
+                .map(|_| {
+                    let idx = rng.gen_range(0..62);
+                    match idx {
+                        0..=25 => (b'a' + idx as u8) as char,
+                        26..=51 => (b'A' + (idx - 26) as u8) as char,
+                        _ => (b'0' + (idx - 52) as u8) as char,
+                    }
+                })
+                .collect();
+            Ok(Value::String(Rc::new(chars)))
         }
+        _ => Err("random_string: expected int".to_string()),
     });
 
     // uuid() -> string (generates a random UUID v4)

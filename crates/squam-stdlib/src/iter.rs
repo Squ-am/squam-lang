@@ -1,8 +1,7 @@
+use crate::option::{none, some};
 use squam_vm::{RuntimeError, Value, VM};
 use std::cell::RefCell;
 use std::rc::Rc;
-
-// --- VM-native functions for higher-order iterator operations ---
 
 fn iter_map(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
     match (&args[0], &args[1]) {
@@ -15,7 +14,9 @@ fn iter_map(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("map: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "map: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -32,7 +33,9 @@ fn iter_filter(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("filter: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "filter: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -46,7 +49,9 @@ fn iter_reduce(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(acc)
         }
-        _ => Err(RuntimeError::Custom("reduce: expected (array, closure, init)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "reduce: expected (array, closure, init)".to_string(),
+        )),
     }
 }
 
@@ -59,7 +64,9 @@ fn iter_foreach(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Unit)
         }
-        _ => Err(RuntimeError::Custom("foreach: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "foreach: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -70,22 +77,14 @@ fn iter_find(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             for item in arr.iter() {
                 let pred = vm.call_closure_value(closure, vec![item.clone()])?;
                 if pred.is_truthy() {
-                    // Return Some(item)
-                    return Ok(Value::Enum(Rc::new(squam_vm::value::EnumInstance {
-                        enum_name: "Option".to_string(),
-                        variant: "Some".to_string(),
-                        fields: vec![item.clone()],
-                    })));
+                    return Ok(some(item.clone()));
                 }
             }
-            // Return None
-            Ok(Value::Enum(Rc::new(squam_vm::value::EnumInstance {
-                enum_name: "Option".to_string(),
-                variant: "None".to_string(),
-                fields: vec![],
-            })))
+            Ok(none())
         }
-        _ => Err(RuntimeError::Custom("find: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "find: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -96,22 +95,14 @@ fn iter_find_index(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             for (i, item) in arr.iter().enumerate() {
                 let pred = vm.call_closure_value(closure, vec![item.clone()])?;
                 if pred.is_truthy() {
-                    // Return Some(index)
-                    return Ok(Value::Enum(Rc::new(squam_vm::value::EnumInstance {
-                        enum_name: "Option".to_string(),
-                        variant: "Some".to_string(),
-                        fields: vec![Value::Int(i as i64)],
-                    })));
+                    return Ok(some(Value::Int(i as i64)));
                 }
             }
-            // Return None
-            Ok(Value::Enum(Rc::new(squam_vm::value::EnumInstance {
-                enum_name: "Option".to_string(),
-                variant: "None".to_string(),
-                fields: vec![],
-            })))
+            Ok(none())
         }
-        _ => Err(RuntimeError::Custom("find_index: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "find_index: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -127,7 +118,9 @@ fn iter_any_with(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Bool(false))
         }
-        _ => Err(RuntimeError::Custom("any_with: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "any_with: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -143,7 +136,9 @@ fn iter_all_with(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Bool(true))
         }
-        _ => Err(RuntimeError::Custom("all_with: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "all_with: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -160,7 +155,9 @@ fn iter_count_with(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Int(count))
         }
-        _ => Err(RuntimeError::Custom("count_with: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "count_with: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -183,7 +180,9 @@ fn iter_partition(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
                 Value::Array(Rc::new(RefCell::new(failing))),
             ])))
         }
-        _ => Err(RuntimeError::Custom("partition: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "partition: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -216,7 +215,9 @@ fn iter_sort_by(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("sort_by: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "sort_by: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -244,7 +245,9 @@ fn iter_group_by(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
                 .collect();
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("group_by: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "group_by: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -265,7 +268,9 @@ fn iter_flat_map(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("flat_map: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "flat_map: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -284,7 +289,9 @@ fn iter_take_while(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("take_while: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "take_while: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -307,7 +314,9 @@ fn iter_skip_while(vm: &mut VM, args: &[Value]) -> Result<Value, RuntimeError> {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        _ => Err(RuntimeError::Custom("skip_while: expected (array, closure)".to_string())),
+        _ => Err(RuntimeError::Custom(
+            "skip_while: expected (array, closure)".to_string(),
+        )),
     }
 }
 
@@ -340,24 +349,25 @@ pub fn register(vm: &mut VM) {
                 .collect();
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        other => Err(format!("enumerate: expected array, got {}", other.type_name())),
+        other => Err(format!(
+            "enumerate: expected array, got {}",
+            other.type_name()
+        )),
     });
 
     // zip(a: array, b: array) -> array of tuples
-    vm.define_native("zip", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Array(a), Value::Array(b)) => {
-                let a = a.borrow();
-                let b = b.borrow();
-                let result: Vec<Value> = a
-                    .iter()
-                    .zip(b.iter())
-                    .map(|(x, y)| Value::Tuple(Rc::new(vec![x.clone(), y.clone()])))
-                    .collect();
-                Ok(Value::Array(Rc::new(RefCell::new(result))))
-            }
-            _ => Err("zip: expected two arrays".to_string()),
+    vm.define_native("zip", 2, |args| match (&args[0], &args[1]) {
+        (Value::Array(a), Value::Array(b)) => {
+            let a = a.borrow();
+            let b = b.borrow();
+            let result: Vec<Value> = a
+                .iter()
+                .zip(b.iter())
+                .map(|(x, y)| Value::Tuple(Rc::new(vec![x.clone(), y.clone()])))
+                .collect();
+            Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
+        _ => Err("zip: expected two arrays".to_string()),
     });
 
     // unzip(arr: array of tuples) -> (array, array)
@@ -398,33 +408,32 @@ pub fn register(vm: &mut VM) {
             }
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        other => Err(format!("flatten: expected array, got {}", other.type_name())),
+        other => Err(format!(
+            "flatten: expected array, got {}",
+            other.type_name()
+        )),
     });
 
     // take(arr: array, n: int) -> array
-    vm.define_native("take", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Array(arr), Value::Int(n)) => {
-                let arr = arr.borrow();
-                let n = (*n).max(0) as usize;
-                let result: Vec<Value> = arr.iter().take(n).cloned().collect();
-                Ok(Value::Array(Rc::new(RefCell::new(result))))
-            }
-            _ => Err("take: expected (array, int)".to_string()),
+    vm.define_native("take", 2, |args| match (&args[0], &args[1]) {
+        (Value::Array(arr), Value::Int(n)) => {
+            let arr = arr.borrow();
+            let n = (*n).max(0) as usize;
+            let result: Vec<Value> = arr.iter().take(n).cloned().collect();
+            Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
+        _ => Err("take: expected (array, int)".to_string()),
     });
 
     // skip(arr: array, n: int) -> array
-    vm.define_native("skip", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Array(arr), Value::Int(n)) => {
-                let arr = arr.borrow();
-                let n = (*n).max(0) as usize;
-                let result: Vec<Value> = arr.iter().skip(n).cloned().collect();
-                Ok(Value::Array(Rc::new(RefCell::new(result))))
-            }
-            _ => Err("skip: expected (array, int)".to_string()),
+    vm.define_native("skip", 2, |args| match (&args[0], &args[1]) {
+        (Value::Array(arr), Value::Int(n)) => {
+            let arr = arr.borrow();
+            let n = (*n).max(0) as usize;
+            let result: Vec<Value> = arr.iter().skip(n).cloned().collect();
+            Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
+        _ => Err("skip: expected (array, int)".to_string()),
     });
 
     // take_while_positive(arr: array) -> array
@@ -442,7 +451,10 @@ pub fn register(vm: &mut VM) {
                 .collect();
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        other => Err(format!("take_while_positive: expected array, got {}", other.type_name())),
+        other => Err(format!(
+            "take_while_positive: expected array, got {}",
+            other.type_name()
+        )),
     });
 
     // filter_some(arr: array) -> array (removes None/Unit values)
@@ -456,7 +468,10 @@ pub fn register(vm: &mut VM) {
                 .collect();
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        other => Err(format!("filter_some: expected array, got {}", other.type_name())),
+        other => Err(format!(
+            "filter_some: expected array, got {}",
+            other.type_name()
+        )),
     });
 
     // sum(arr: array) -> int|float
@@ -530,7 +545,10 @@ pub fn register(vm: &mut VM) {
                 Ok(Value::Int(int_prod))
             }
         }
-        other => Err(format!("product: expected array, got {}", other.type_name())),
+        other => Err(format!(
+            "product: expected array, got {}",
+            other.type_name()
+        )),
     });
 
     // any(arr: array) -> bool (true if any element is truthy)
@@ -555,7 +573,9 @@ pub fn register(vm: &mut VM) {
     vm.define_native("count", 1, |args| match &args[0] {
         Value::Array(arr) => {
             let arr = arr.borrow();
-            Ok(Value::Int(arr.iter().filter(|v| v.is_truthy()).count() as i64))
+            Ok(Value::Int(
+                arr.iter().filter(|v| v.is_truthy()).count() as i64
+            ))
         }
         other => Err(format!("count: expected array, got {}", other.type_name())),
     });
@@ -609,13 +629,13 @@ pub fn register(vm: &mut VM) {
         Value::Array(arr) => {
             let arr = arr.borrow();
             let mut result: Vec<Value> = arr.clone();
-            result.sort_by(|a, b| {
-                match (a, b) {
-                    (Value::Int(x), Value::Int(y)) => x.cmp(y),
-                    (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
-                    (Value::String(x), Value::String(y)) => x.cmp(y),
-                    _ => std::cmp::Ordering::Equal,
+            result.sort_by(|a, b| match (a, b) {
+                (Value::Int(x), Value::Int(y)) => x.cmp(y),
+                (Value::Float(x), Value::Float(y)) => {
+                    x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
                 }
+                (Value::String(x), Value::String(y)) => x.cmp(y),
+                _ => std::cmp::Ordering::Equal,
             });
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
@@ -630,10 +650,11 @@ pub fn register(vm: &mut VM) {
             result.reverse();
             Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
-        Value::String(s) => {
-            Ok(Value::String(Rc::new(s.chars().rev().collect())))
-        }
-        other => Err(format!("reversed: expected array or string, got {}", other.type_name())),
+        Value::String(s) => Ok(Value::String(Rc::new(s.chars().rev().collect()))),
+        other => Err(format!(
+            "reversed: expected array or string, got {}",
+            other.type_name()
+        )),
     });
 
     // unique(arr: array) -> array (remove duplicates, preserve order)
@@ -652,43 +673,39 @@ pub fn register(vm: &mut VM) {
     });
 
     // chunks(arr: array, size: int) -> array of arrays
-    vm.define_native("chunks", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Array(arr), Value::Int(size)) => {
-                if *size <= 0 {
-                    return Err("chunks: size must be positive".to_string());
-                }
-                let arr = arr.borrow();
-                let size = *size as usize;
-                let result: Vec<Value> = arr
-                    .chunks(size)
-                    .map(|chunk| Value::Array(Rc::new(RefCell::new(chunk.to_vec()))))
-                    .collect();
-                Ok(Value::Array(Rc::new(RefCell::new(result))))
+    vm.define_native("chunks", 2, |args| match (&args[0], &args[1]) {
+        (Value::Array(arr), Value::Int(size)) => {
+            if *size <= 0 {
+                return Err("chunks: size must be positive".to_string());
             }
-            _ => Err("chunks: expected (array, int)".to_string()),
+            let arr = arr.borrow();
+            let size = *size as usize;
+            let result: Vec<Value> = arr
+                .chunks(size)
+                .map(|chunk| Value::Array(Rc::new(RefCell::new(chunk.to_vec()))))
+                .collect();
+            Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
+        _ => Err("chunks: expected (array, int)".to_string()),
     });
 
     // windows(arr: array, size: int) -> array of arrays
-    vm.define_native("windows", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Array(arr), Value::Int(size)) => {
-                if *size <= 0 {
-                    return Err("windows: size must be positive".to_string());
-                }
-                let arr = arr.borrow();
-                let size = *size as usize;
-                if size > arr.len() {
-                    return Ok(Value::Array(Rc::new(RefCell::new(Vec::new()))));
-                }
-                let result: Vec<Value> = arr
-                    .windows(size)
-                    .map(|window| Value::Array(Rc::new(RefCell::new(window.to_vec()))))
-                    .collect();
-                Ok(Value::Array(Rc::new(RefCell::new(result))))
+    vm.define_native("windows", 2, |args| match (&args[0], &args[1]) {
+        (Value::Array(arr), Value::Int(size)) => {
+            if *size <= 0 {
+                return Err("windows: size must be positive".to_string());
             }
-            _ => Err("windows: expected (array, int)".to_string()),
+            let arr = arr.borrow();
+            let size = *size as usize;
+            if size > arr.len() {
+                return Ok(Value::Array(Rc::new(RefCell::new(Vec::new()))));
+            }
+            let result: Vec<Value> = arr
+                .windows(size)
+                .map(|window| Value::Array(Rc::new(RefCell::new(window.to_vec()))))
+                .collect();
+            Ok(Value::Array(Rc::new(RefCell::new(result))))
         }
+        _ => Err("windows: expected (array, int)".to_string()),
     });
 }

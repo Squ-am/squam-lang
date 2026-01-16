@@ -30,7 +30,10 @@ pub fn register(vm: &mut VM) {
             *inner.borrow_mut() = args[1].clone();
             Ok(old)
         }
-        other => Err(format!("box_replace: expected Box, got {}", other.type_name())),
+        other => Err(format!(
+            "box_replace: expected Box, got {}",
+            other.type_name()
+        )),
     });
 
     // box_take(b: Box) -> any (returns value, replaces with Unit)

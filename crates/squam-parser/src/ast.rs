@@ -4,20 +4,12 @@ use std::sync::Arc;
 /// An interned string symbol.
 pub type Symbol = Arc<str>;
 
-// ---
-// Module
-// ---
-
 /// A complete Squam module (file).
 #[derive(Debug, Clone)]
 pub struct Module {
     pub items: Vec<Item>,
     pub span: Span,
 }
-
-// ---
-// Items (Top-level declarations)
-// ---
 
 /// A top-level item in a module.
 #[derive(Debug, Clone)]
@@ -49,10 +41,6 @@ impl Item {
     }
 }
 
-// ---
-// Attributes
-// ---
-
 /// An attribute like #[derive(Debug, Clone)].
 #[derive(Debug, Clone)]
 pub struct Attribute {
@@ -66,7 +54,10 @@ pub enum AttributeKind {
     /// #[derive(Trait1, Trait2, ...)]
     Derive(Vec<Identifier>),
     /// Generic attribute for future use: #[name(args)]
-    Named { name: Identifier, args: Vec<AttributeArg> },
+    Named {
+        name: Identifier,
+        args: Vec<AttributeArg>,
+    },
 }
 
 /// An argument to an attribute.
@@ -77,7 +68,10 @@ pub enum AttributeArg {
     /// A literal value: 42, "string"
     Literal(Literal),
     /// An assignment: name = value
-    Assign { name: Identifier, value: Box<AttributeArg> },
+    Assign {
+        name: Identifier,
+        value: Box<AttributeArg>,
+    },
 }
 
 /// Visibility modifier.
@@ -97,13 +91,12 @@ pub struct Identifier {
 
 impl Identifier {
     pub fn new(name: impl Into<Symbol>, span: Span) -> Self {
-        Self { name: name.into(), span }
+        Self {
+            name: name.into(),
+            span,
+        }
     }
 }
-
-// ---
-// Functions
-// ---
 
 /// A function definition.
 #[derive(Debug, Clone)]
@@ -133,10 +126,6 @@ pub struct ClosureParam {
     pub ty: Option<Type>,
     pub span: Span,
 }
-
-// ---
-// Structs & Enums
-// ---
 
 /// A struct definition.
 #[derive(Debug, Clone)]
@@ -197,10 +186,6 @@ pub struct EnumVariant {
     pub discriminant: Option<Box<Expr>>,
     pub span: Span,
 }
-
-// ---
-// Impl & Trait
-// ---
 
 /// An impl block.
 #[derive(Debug, Clone)]
@@ -268,10 +253,6 @@ pub struct TraitType {
     pub span: Span,
 }
 
-// ---
-// Type Alias & Const
-// ---
-
 /// A type alias: `type Foo = Bar`
 #[derive(Debug, Clone)]
 pub struct TypeAlias {
@@ -292,10 +273,6 @@ pub struct ConstDef {
     pub span: Span,
 }
 
-// ---
-// Use & Mod
-// ---
-
 /// A use declaration: `use foo::bar`
 #[derive(Debug, Clone)]
 pub struct UseDecl {
@@ -308,11 +285,17 @@ pub struct UseDecl {
 #[derive(Debug, Clone)]
 pub enum UseTree {
     /// Simple path: `foo::bar`
-    Path { path: Vec<Identifier>, alias: Option<Identifier> },
+    Path {
+        path: Vec<Identifier>,
+        alias: Option<Identifier>,
+    },
     /// Glob: `foo::*`
     Glob { path: Vec<Identifier> },
     /// Nested: `foo::{bar, baz}`
-    Nested { path: Vec<Identifier>, items: Vec<UseTree> },
+    Nested {
+        path: Vec<Identifier>,
+        items: Vec<UseTree>,
+    },
 }
 
 /// A module declaration.
@@ -323,10 +306,6 @@ pub struct ModDecl {
     pub items: Option<Vec<Item>>,
     pub span: Span,
 }
-
-// ---
-// Generics
-// ---
 
 /// Generic parameters: `<T, U: Clone>`
 #[derive(Debug, Clone)]
@@ -376,10 +355,6 @@ pub struct WherePredicate {
     pub span: Span,
 }
 
-// ---
-// Types
-// ---
-
 /// A type expression.
 #[derive(Debug, Clone)]
 pub struct Type {
@@ -401,7 +376,10 @@ pub enum TypeKind {
     /// A tuple type: `(T, U)`
     Tuple(Vec<Type>),
     /// A function type: `fn(T) -> U`
-    Function { params: Vec<Type>, return_type: Option<Box<Type>> },
+    Function {
+        params: Vec<Type>,
+        return_type: Option<Box<Type>>,
+    },
     /// Inferred type: `_`
     Infer,
     /// Never type: `!`
@@ -438,10 +416,6 @@ pub enum GenericArg {
     Const(Expr),
 }
 
-// ---
-// Expressions
-// ---
-
 /// An expression.
 #[derive(Debug, Clone)]
 pub struct Expr {
@@ -462,13 +436,21 @@ pub enum ExprKind {
     /// Unary operation: `-x`, `!x`
     Unary { op: UnaryOp, operand: Box<Expr> },
     /// Binary operation: `a + b`
-    Binary { op: BinaryOp, left: Box<Expr>, right: Box<Expr> },
+    Binary {
+        op: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 
     // Assignment
     /// Assignment: `x = y`
     Assign { target: Box<Expr>, value: Box<Expr> },
     /// Compound assignment: `x += y`
-    AssignOp { op: BinaryOp, target: Box<Expr>, value: Box<Expr> },
+    AssignOp {
+        op: BinaryOp,
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
 
     // Access
     /// Field access: `x.foo`
@@ -478,13 +460,24 @@ pub enum ExprKind {
 
     // Calls
     /// Function call: `f(x, y)` or `f(name: x, age: y)`
-    Call { callee: Box<Expr>, args: Vec<CallArg> },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<CallArg>,
+    },
     /// Method call: `x.foo(y)` or `x.foo(name: y)`
-    MethodCall { receiver: Box<Expr>, method: Identifier, args: Vec<CallArg> },
+    MethodCall {
+        receiver: Box<Expr>,
+        method: Identifier,
+        args: Vec<CallArg>,
+    },
 
     // Constructors
     /// Struct literal: `Point { x: 1, y: 2 }`
-    Struct { path: TypePath, fields: Vec<StructExprField>, rest: Option<Box<Expr>> },
+    Struct {
+        path: TypePath,
+        fields: Vec<StructExprField>,
+        rest: Option<Box<Expr>>,
+    },
     /// Tuple expression: `(a, b)`
     Tuple(Vec<Expr>),
     /// Array expression: `[1, 2, 3]`
@@ -494,19 +487,41 @@ pub enum ExprKind {
 
     // Control flow
     /// If expression: `if cond { ... } else { ... }`
-    If { condition: Box<Expr>, then_branch: Block, else_branch: Option<Box<Expr>> },
+    If {
+        condition: Box<Expr>,
+        then_branch: Block,
+        else_branch: Option<Box<Expr>>,
+    },
     /// Match expression
-    Match { scrutinee: Box<Expr>, arms: Vec<MatchArm> },
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
     /// Loop: `loop { ... }`
-    Loop { label: Option<Identifier>, body: Block },
+    Loop {
+        label: Option<Identifier>,
+        body: Block,
+    },
     /// While loop: `while cond { ... }`
-    While { label: Option<Identifier>, condition: Box<Expr>, body: Block },
+    While {
+        label: Option<Identifier>,
+        condition: Box<Expr>,
+        body: Block,
+    },
     /// For loop: `for x in iter { ... }`
-    For { label: Option<Identifier>, pattern: Pattern, iterable: Box<Expr>, body: Block },
+    For {
+        label: Option<Identifier>,
+        pattern: Pattern,
+        iterable: Box<Expr>,
+        body: Block,
+    },
 
     // Jumps
     /// Break: `break`, `break 'label`, `break value`
-    Break { label: Option<Identifier>, value: Option<Box<Expr>> },
+    Break {
+        label: Option<Identifier>,
+        value: Option<Box<Expr>>,
+    },
     /// Continue: `continue`, `continue 'label`
     Continue { label: Option<Identifier> },
     /// Return: `return`, `return value`
@@ -514,7 +529,11 @@ pub enum ExprKind {
 
     // Closures
     /// Closure: `|x, y| x + y`
-    Closure { params: Vec<ClosureParam>, return_type: Option<Box<Type>>, body: Box<Expr> },
+    Closure {
+        params: Vec<ClosureParam>,
+        return_type: Option<Box<Type>>,
+        body: Box<Expr>,
+    },
 
     // References
     /// Reference: `&x`, `&mut x`
@@ -526,7 +545,11 @@ pub enum ExprKind {
     /// Block expression: `{ ... }`
     Block(Block),
     /// Range: `a..b`, `a..=b`, `..b`, `a..`
-    Range { start: Option<Box<Expr>>, end: Option<Box<Expr>>, inclusive: bool },
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
     /// Try operator: `x?`
     Try { operand: Box<Expr> },
     /// Type cast: `x as T`
@@ -578,10 +601,6 @@ pub struct MatchArm {
     pub span: Span,
 }
 
-// ---
-// Statements
-// ---
-
 /// A block of statements.
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -600,7 +619,11 @@ pub struct Stmt {
 #[derive(Debug, Clone)]
 pub enum StmtKind {
     /// Let binding: `let x = 1;`
-    Let { pattern: Pattern, ty: Option<Type>, init: Option<Expr> },
+    Let {
+        pattern: Pattern,
+        ty: Option<Type>,
+        init: Option<Expr>,
+    },
     /// Expression with semicolon: `expr;`
     Expr(Expr),
     /// Expression without semicolon (tail expression)
@@ -610,10 +633,6 @@ pub enum StmtKind {
     /// Empty statement: `;`
     Empty,
 }
-
-// ---
-// Patterns
-// ---
 
 /// A pattern.
 #[derive(Debug, Clone)]
@@ -628,7 +647,12 @@ pub enum PatternKind {
     /// Wildcard: `_`
     Wildcard,
     /// Binding: `x`, `mut x`, `ref x`, `x @ pat`
-    Binding { mutable: bool, by_ref: bool, name: Identifier, subpattern: Option<Box<Pattern>> },
+    Binding {
+        mutable: bool,
+        by_ref: bool,
+        name: Identifier,
+        subpattern: Option<Box<Pattern>>,
+    },
     /// Literal: `42`, `"foo"`
     Literal(Literal),
     /// Path pattern: `Foo::Bar`
@@ -636,19 +660,33 @@ pub enum PatternKind {
     /// Tuple pattern: `(a, b)`
     Tuple(Vec<Pattern>),
     /// Struct pattern: `Point { x, y }`
-    Struct { path: TypePath, fields: Vec<PatternField>, rest: bool },
+    Struct {
+        path: TypePath,
+        fields: Vec<PatternField>,
+        rest: bool,
+    },
     /// Tuple struct pattern: `Some(x)`
-    TupleStruct { path: TypePath, fields: Vec<Pattern> },
+    TupleStruct {
+        path: TypePath,
+        fields: Vec<Pattern>,
+    },
     /// Slice pattern: `[a, b, ..]`
     Slice(Vec<Pattern>),
     /// Or pattern: `A | B`
     Or(Vec<Pattern>),
     /// Reference pattern: `&x`, `&mut x`
-    Reference { mutable: bool, pattern: Box<Pattern> },
+    Reference {
+        mutable: bool,
+        pattern: Box<Pattern>,
+    },
     /// Rest pattern: `..`
     Rest,
     /// Range pattern: `0..10`, `'a'..='z'`
-    Range { start: Option<Box<Expr>>, end: Option<Box<Expr>>, inclusive: bool },
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
 }
 
 /// A field in a struct pattern.
@@ -658,10 +696,6 @@ pub struct PatternField {
     pub pattern: Option<Pattern>,
     pub span: Span,
 }
-
-// ---
-// Literals & Operators
-// ---
 
 /// A literal value.
 #[derive(Debug, Clone)]
@@ -748,7 +782,10 @@ impl BinaryOp {
 
     /// Returns true if this is a comparison operator.
     pub fn is_comparison(&self) -> bool {
-        matches!(self, BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge)
+        matches!(
+            self,
+            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+        )
     }
 
     /// Returns true if this is a logical operator.

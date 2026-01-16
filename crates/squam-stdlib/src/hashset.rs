@@ -22,9 +22,7 @@ fn to_key(value: &Value) -> String {
 /// Register HashSet functions with the VM.
 pub fn register(vm: &mut VM) {
     // Create a new empty HashSet
-    vm.define_native("hashset_new", 0, |_args| {
-        Ok(new_hashset())
-    });
+    vm.define_native("hashset_new", 0, |_args| Ok(new_hashset()));
 
     // Insert a value (returns true if newly inserted)
     vm.define_native("hashset_insert", 2, |args| {
@@ -101,7 +99,8 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
                 let fields = s.fields().borrow();
-                let values: Vec<Value> = fields.keys()
+                let values: Vec<Value> = fields
+                    .keys()
                     .map(|k| {
                         // Parse the key back to a Value
                         if let Some(rest) = k.strip_prefix("i:") {
@@ -122,24 +121,26 @@ pub fn register(vm: &mut VM) {
     });
 
     // Union of two sets (creates new set)
-    vm.define_native("hashset_union", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Struct(s1), Value::Struct(s2))
-                if s1.name == "HashSet" && s2.name == "HashSet" =>
-            {
-                let result = StructInstance::new_dynamic("HashSet".to_string());
+    vm.define_native("hashset_union", 2, |args| match (&args[0], &args[1]) {
+        (Value::Struct(s1), Value::Struct(s2)) if s1.name == "HashSet" && s2.name == "HashSet" => {
+            let result = StructInstance::new_dynamic("HashSet".to_string());
 
-                for key in s1.fields().borrow().keys() {
-                    result.fields().borrow_mut().insert(key.clone(), Value::Unit);
-                }
-                for key in s2.fields().borrow().keys() {
-                    result.fields().borrow_mut().insert(key.clone(), Value::Unit);
-                }
-
-                Ok(Value::Struct(Rc::new(result)))
+            for key in s1.fields().borrow().keys() {
+                result
+                    .fields()
+                    .borrow_mut()
+                    .insert(key.clone(), Value::Unit);
             }
-            _ => Err("hashset_union expects two HashSets".to_string())
+            for key in s2.fields().borrow().keys() {
+                result
+                    .fields()
+                    .borrow_mut()
+                    .insert(key.clone(), Value::Unit);
+            }
+
+            Ok(Value::Struct(Rc::new(result)))
         }
+        _ => Err("hashset_union expects two HashSets".to_string()),
     });
 
     // Intersection of two sets (creates new set)
@@ -155,36 +156,38 @@ pub fn register(vm: &mut VM) {
 
                 for key in fields1.keys() {
                     if fields2.contains_key(key) {
-                        result.fields().borrow_mut().insert(key.clone(), Value::Unit);
+                        result
+                            .fields()
+                            .borrow_mut()
+                            .insert(key.clone(), Value::Unit);
                     }
                 }
 
                 Ok(Value::Struct(Rc::new(result)))
             }
-            _ => Err("hashset_intersection expects two HashSets".to_string())
+            _ => Err("hashset_intersection expects two HashSets".to_string()),
         }
     });
 
     // Difference of two sets (creates new set: elements in first but not second)
-    vm.define_native("hashset_difference", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Struct(s1), Value::Struct(s2))
-                if s1.name == "HashSet" && s2.name == "HashSet" =>
-            {
-                let result = StructInstance::new_dynamic("HashSet".to_string());
+    vm.define_native("hashset_difference", 2, |args| match (&args[0], &args[1]) {
+        (Value::Struct(s1), Value::Struct(s2)) if s1.name == "HashSet" && s2.name == "HashSet" => {
+            let result = StructInstance::new_dynamic("HashSet".to_string());
 
-                let fields1 = s1.fields().borrow();
-                let fields2 = s2.fields().borrow();
+            let fields1 = s1.fields().borrow();
+            let fields2 = s2.fields().borrow();
 
-                for key in fields1.keys() {
-                    if !fields2.contains_key(key) {
-                        result.fields().borrow_mut().insert(key.clone(), Value::Unit);
-                    }
+            for key in fields1.keys() {
+                if !fields2.contains_key(key) {
+                    result
+                        .fields()
+                        .borrow_mut()
+                        .insert(key.clone(), Value::Unit);
                 }
-
-                Ok(Value::Struct(Rc::new(result)))
             }
-            _ => Err("hashset_difference expects two HashSets".to_string())
+
+            Ok(Value::Struct(Rc::new(result)))
         }
+        _ => Err("hashset_difference expects two HashSets".to_string()),
     });
 }

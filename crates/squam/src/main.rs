@@ -655,10 +655,7 @@ fn report_compile_error(filename: &str, source: &str, error: &CompileError) {
 }
 
 fn report_runtime_error(filename: &str, error: &RuntimeError) {
-    eprintln!(
-        "\x1b[1;31mRuntime error\x1b[0m in {}: {}",
-        filename, error
-    );
+    eprintln!("\x1b[1;31mRuntime error\x1b[0m in {}: {}", filename, error);
 }
 
 fn report_type_errors(filename: &str, source: &str, errors: &[TypeError]) {

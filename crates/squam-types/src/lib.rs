@@ -1,12 +1,12 @@
-pub mod types;
+pub mod checker;
 pub mod context;
 pub mod scope;
-pub mod checker;
+pub mod types;
 
-pub use types::{TypeId, Ty, InferVar, GenericVar, GenericParam, Symbol};
+pub use checker::{TypeChecker, TypeError};
 pub use context::TypeContext;
 pub use scope::GenericParamInfo;
-pub use checker::{TypeChecker, TypeError};
+pub use types::{GenericParam, GenericVar, InferVar, Symbol, Ty, TypeId};
 
 use rustc_hash::FxHashMap;
 
@@ -67,14 +67,22 @@ impl TypeAnnotations {
     }
 
     /// Record a generic instantiation
-    pub fn record_instantiation(&mut self, name: String, kind: InstantiationKind, type_args: Vec<String>, span: u32) {
+    pub fn record_instantiation(
+        &mut self,
+        name: String,
+        kind: InstantiationKind,
+        type_args: Vec<String>,
+        span: u32,
+    ) {
         // Always record call site for call site resolution
-        self.call_sites.insert(span, (name.clone(), type_args.clone()));
+        self.call_sites
+            .insert(span, (name.clone(), type_args.clone()));
 
         // Deduplicate for monomorphization (only need one instantiation per unique name+kind+type_args)
-        let exists = self.instantiations.iter().any(|inst| {
-            inst.name == name && inst.kind == kind && inst.type_args == type_args
-        });
+        let exists = self
+            .instantiations
+            .iter()
+            .any(|inst| inst.name == name && inst.kind == kind && inst.type_args == type_args);
         if !exists {
             self.instantiations.push(GenericInstantiation {
                 name,
@@ -93,9 +101,20 @@ impl TypeAnnotations {
 
     /// Check if the type is a known integer type
     pub fn is_integer(&self, ty: TypeId) -> bool {
-        matches!(ty,
-            TypeId::I8 | TypeId::I16 | TypeId::I32 | TypeId::I64 | TypeId::I128 | TypeId::ISIZE |
-            TypeId::U8 | TypeId::U16 | TypeId::U32 | TypeId::U64 | TypeId::U128 | TypeId::USIZE
+        matches!(
+            ty,
+            TypeId::I8
+                | TypeId::I16
+                | TypeId::I32
+                | TypeId::I64
+                | TypeId::I128
+                | TypeId::ISIZE
+                | TypeId::U8
+                | TypeId::U16
+                | TypeId::U32
+                | TypeId::U64
+                | TypeId::U128
+                | TypeId::USIZE
         )
     }
 

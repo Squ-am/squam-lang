@@ -4,10 +4,6 @@ use std::fmt;
 use std::ops::Deref;
 use std::ptr::NonNull;
 
-// ---
-// GC Configuration
-// ---
-
 /// Configuration for the garbage collector.
 #[derive(Debug, Clone)]
 pub struct GcConfig {
@@ -31,10 +27,6 @@ impl Default for GcConfig {
         }
     }
 }
-
-// ---
-// GC Object Header
-// ---
 
 /// Header for GC-managed objects.
 #[derive(Debug)]
@@ -67,10 +59,6 @@ impl<T: Trace> GcBox<T> {
     }
 }
 
-// ---
-// Gc Smart Pointer
-// ---
-
 /// A garbage-collected pointer to a value of type T.
 ///
 /// This is similar to `Rc<T>` but uses tracing garbage collection
@@ -82,7 +70,7 @@ pub struct Gc<T: Trace + ?Sized> {
 impl<T: Trace + ?Sized> Gc<T> {
     /// Get a reference to the inner value.
     #[inline]
-    pub fn as_ref(&self) -> &T {
+    pub fn get(&self) -> &T {
         unsafe { &self.ptr.as_ref().value }
     }
 
@@ -95,7 +83,7 @@ impl<T: Trace + ?Sized> Gc<T> {
 
 impl<T: Trace + ?Sized> Clone for Gc<T> {
     fn clone(&self) -> Self {
-        Gc { ptr: self.ptr }
+        *self
     }
 }
 
@@ -105,19 +93,19 @@ impl<T: Trace + ?Sized> Deref for Gc<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        self.as_ref()
+        self.get()
     }
 }
 
 impl<T: Trace + ?Sized + fmt::Debug> fmt::Debug for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(self.as_ref(), f)
+        fmt::Debug::fmt(self.get(), f)
     }
 }
 
 impl<T: Trace + ?Sized + fmt::Display> fmt::Display for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self.as_ref(), f)
+        fmt::Display::fmt(self.get(), f)
     }
 }
 
@@ -134,10 +122,6 @@ impl<T: Trace + std::hash::Hash> std::hash::Hash for Gc<T> {
         (**self).hash(state)
     }
 }
-
-// ---
-// GcRefCell - Interior mutability for GC values
-// ---
 
 /// A garbage-collected reference cell for interior mutability.
 pub struct GcRefCell<T: Trace> {
@@ -172,10 +156,6 @@ impl<T: Trace + fmt::Debug> fmt::Debug for GcRefCell<T> {
     }
 }
 
-// ---
-// Trace Trait
-// ---
-
 /// Trait for types that can be traced by the garbage collector.
 ///
 /// Implementors must mark all Gc pointers they contain.
@@ -186,8 +166,7 @@ pub trait Trace {
 
 /// Tracer used during the mark phase.
 pub struct Tracer<'a> {
-    #[allow(dead_code)]
-    heap: &'a GcHeap,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Tracer<'a> {
@@ -203,10 +182,6 @@ impl<'a> Tracer<'a> {
         }
     }
 }
-
-// ---
-// Trace implementations for primitive types
-// ---
 
 impl Trace for () {
     fn trace(&self, _tracer: &mut Tracer) {}
@@ -270,10 +245,6 @@ impl<T: Trace + ?Sized> Trace for Gc<T> {
         tracer.mark(self);
     }
 }
-
-// ---
-// GC Heap
-// ---
 
 /// The garbage-collected heap.
 pub struct GcHeap {
@@ -366,7 +337,8 @@ impl GcHeap {
         self.sweep();
 
         // Update threshold
-        let new_threshold = ((self.bytes_allocated.get() as f64) * self.config.growth_factor) as usize;
+        let new_threshold =
+            ((self.bytes_allocated.get() as f64) * self.config.growth_factor) as usize;
         self.threshold
             .set(new_threshold.max(self.config.min_threshold));
 
@@ -375,7 +347,9 @@ impl GcHeap {
 
     /// Mark all reachable objects starting from roots.
     fn mark(&self, roots: &[&dyn Trace]) {
-        let mut tracer = Tracer { heap: self };
+        let mut tracer = Tracer {
+            _marker: std::marker::PhantomData,
+        };
         for root in roots {
             root.trace(&mut tracer);
         }
@@ -465,10 +439,6 @@ impl Drop for GcHeap {
         }
     }
 }
-
-// ---
-// Tests
-// ---
 
 #[cfg(test)]
 mod tests {

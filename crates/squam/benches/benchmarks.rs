@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use squam_compiler::Compiler;
 use squam_lexer::Lexer;
 use squam_parser::Parser;
@@ -36,13 +36,17 @@ fn bench_lexer(c: &mut Criterion) {
     let mut group = c.benchmark_group("lexer/size");
     for size in [10, 100, 1000] {
         let large_source = "let x = 1 + 2 * 3 - 4 / 5;\n".repeat(size);
-        group.bench_with_input(BenchmarkId::from_parameter(size), &large_source, |b, src| {
-            b.iter(|| {
-                let lexer = Lexer::new(black_box(src), 0);
-                let tokens: Vec<_> = lexer.collect();
-                black_box(tokens)
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(size),
+            &large_source,
+            |b, src| {
+                b.iter(|| {
+                    let lexer = Lexer::new(black_box(src), 0);
+                    let tokens: Vec<_> = lexer.collect();
+                    black_box(tokens)
+                })
+            },
+        );
     }
     group.finish();
 }
@@ -302,9 +306,9 @@ fn bench_e2e(c: &mut Criterion) {
 // ---
 
 fn bench_optimizer(c: &mut Criterion) {
-    use squam_compiler::{ConstantFolder, PeepholeOptimizer, DeadCodeEliminator};
-    use squam_parser::{Expr, ExprKind, Literal, BinaryOp};
+    use squam_compiler::{ConstantFolder, DeadCodeEliminator, PeepholeOptimizer};
     use squam_lexer::Span;
+    use squam_parser::{BinaryOp, Expr, ExprKind, Literal};
 
     // Constant folding benchmark
     c.bench_function("optimizer/constant_fold", |b| {
@@ -402,7 +406,7 @@ fn bench_optimizer(c: &mut Criterion) {
 // ---
 
 fn bench_inline_cache(c: &mut Criterion) {
-    use squam_vm::{InlineCacheManager, CallSiteId, TypeId};
+    use squam_vm::{CallSiteId, InlineCacheManager, TypeId};
 
     c.bench_function("inline_cache/lookup_hit", |b| {
         let mut manager = InlineCacheManager::new();

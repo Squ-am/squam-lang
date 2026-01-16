@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use crate::bytecode::{Chunk, Constant, FunctionProto, OpCode, UpvalueInfo};
 use squam_lexer::Span;
 use squam_parser::ast::*;
 use squam_types::TypeAnnotations;
-use crate::bytecode::{Chunk, Constant, FunctionProto, OpCode, UpvalueInfo};
+use std::collections::HashMap;
 
 /// Compilation errors.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -213,7 +213,10 @@ impl Compiler {
             Type {
                 kind: TypeKind::Path(TypePath {
                     segments: vec![PathSegment {
-                        ident: Identifier { name: name.into(), span: Span::dummy() },
+                        ident: Identifier {
+                            name: name.into(),
+                            span: Span::dummy(),
+                        },
                         args: None,
                     }],
                     span: Span::dummy(),
@@ -226,10 +229,16 @@ impl Compiler {
         let option_def = EnumDef {
             attributes: Vec::new(),
             visibility: Visibility::Public,
-            name: Identifier { name: "Option".into(), span: Span::dummy() },
+            name: Identifier {
+                name: "Option".into(),
+                span: Span::dummy(),
+            },
             generics: Some(Generics {
                 params: vec![GenericParam::Type(TypeParam {
-                    name: Identifier { name: "T".into(), span: Span::dummy() },
+                    name: Identifier {
+                        name: "T".into(),
+                        span: Span::dummy(),
+                    },
                     bounds: Vec::new(),
                     default: None,
                     span: Span::dummy(),
@@ -239,19 +248,23 @@ impl Compiler {
             }),
             variants: vec![
                 EnumVariant {
-                    name: Identifier { name: "Some".into(), span: Span::dummy() },
-                    fields: StructFields::Tuple(vec![
-                        TupleField {
-                            visibility: Visibility::Public,
-                            ty: make_type_path("T"),
-                            span: Span::dummy(),
-                        },
-                    ]),
+                    name: Identifier {
+                        name: "Some".into(),
+                        span: Span::dummy(),
+                    },
+                    fields: StructFields::Tuple(vec![TupleField {
+                        visibility: Visibility::Public,
+                        ty: make_type_path("T"),
+                        span: Span::dummy(),
+                    }]),
                     discriminant: None,
                     span: Span::dummy(),
                 },
                 EnumVariant {
-                    name: Identifier { name: "None".into(), span: Span::dummy() },
+                    name: Identifier {
+                        name: "None".into(),
+                        span: Span::dummy(),
+                    },
                     fields: StructFields::Unit,
                     discriminant: None,
                     span: Span::dummy(),
@@ -259,26 +272,38 @@ impl Compiler {
             ],
             span: Span::dummy(),
         };
-        self.generic_defs.insert("Option".into(), GenericDef {
-            kind: GenericDefKind::Enum(option_def),
-            type_params: vec!["T".into()],
-        });
+        self.generic_defs.insert(
+            "Option".into(),
+            GenericDef {
+                kind: GenericDefKind::Enum(option_def),
+                type_params: vec!["T".into()],
+            },
+        );
 
         // Result<T, E> = Ok(T) | Err(E)
         let result_def = EnumDef {
             attributes: Vec::new(),
             visibility: Visibility::Public,
-            name: Identifier { name: "Result".into(), span: Span::dummy() },
+            name: Identifier {
+                name: "Result".into(),
+                span: Span::dummy(),
+            },
             generics: Some(Generics {
                 params: vec![
                     GenericParam::Type(TypeParam {
-                        name: Identifier { name: "T".into(), span: Span::dummy() },
+                        name: Identifier {
+                            name: "T".into(),
+                            span: Span::dummy(),
+                        },
                         bounds: Vec::new(),
                         default: None,
                         span: Span::dummy(),
                     }),
                     GenericParam::Type(TypeParam {
-                        name: Identifier { name: "E".into(), span: Span::dummy() },
+                        name: Identifier {
+                            name: "E".into(),
+                            span: Span::dummy(),
+                        },
                         bounds: Vec::new(),
                         default: None,
                         span: Span::dummy(),
@@ -289,36 +314,41 @@ impl Compiler {
             }),
             variants: vec![
                 EnumVariant {
-                    name: Identifier { name: "Ok".into(), span: Span::dummy() },
-                    fields: StructFields::Tuple(vec![
-                        TupleField {
-                            visibility: Visibility::Public,
-                            ty: make_type_path("T"),
-                            span: Span::dummy(),
-                        },
-                    ]),
+                    name: Identifier {
+                        name: "Ok".into(),
+                        span: Span::dummy(),
+                    },
+                    fields: StructFields::Tuple(vec![TupleField {
+                        visibility: Visibility::Public,
+                        ty: make_type_path("T"),
+                        span: Span::dummy(),
+                    }]),
                     discriminant: None,
                     span: Span::dummy(),
                 },
                 EnumVariant {
-                    name: Identifier { name: "Err".into(), span: Span::dummy() },
-                    fields: StructFields::Tuple(vec![
-                        TupleField {
-                            visibility: Visibility::Public,
-                            ty: make_type_path("E"),
-                            span: Span::dummy(),
-                        },
-                    ]),
+                    name: Identifier {
+                        name: "Err".into(),
+                        span: Span::dummy(),
+                    },
+                    fields: StructFields::Tuple(vec![TupleField {
+                        visibility: Visibility::Public,
+                        ty: make_type_path("E"),
+                        span: Span::dummy(),
+                    }]),
                     discriminant: None,
                     span: Span::dummy(),
                 },
             ],
             span: Span::dummy(),
         };
-        self.generic_defs.insert("Result".into(), GenericDef {
-            kind: GenericDefKind::Enum(result_def),
-            type_params: vec!["T".into(), "E".into()],
-        });
+        self.generic_defs.insert(
+            "Result".into(),
+            GenericDef {
+                kind: GenericDefKind::Enum(result_def),
+                type_params: vec!["T".into(), "E".into()],
+            },
+        );
     }
 
     /// Set type annotations for optimized code generation.
@@ -368,48 +398,60 @@ impl Compiler {
     /// Extract generic parameter names from a Generics AST node.
     fn extract_type_params(generics: &Option<Generics>) -> Vec<String> {
         generics.as_ref().map_or_else(Vec::new, |g| {
-            g.params.iter().filter_map(|p| {
-                match p {
-                    GenericParam::Type(tp) => Some(tp.name.name.to_string()),
-                    GenericParam::Const(_) => None, // Skip const params for now
-                }
-            }).collect()
+            g.params
+                .iter()
+                .filter_map(|p| {
+                    match p {
+                        GenericParam::Type(tp) => Some(tp.name.name.to_string()),
+                        GenericParam::Const(_) => None, // Skip const params for now
+                    }
+                })
+                .collect()
         })
     }
 
     /// Check if an item has generics.
     fn has_generics(generics: &Option<Generics>) -> bool {
-        generics.as_ref().map_or(false, |g| !g.params.is_empty())
+        generics.as_ref().is_some_and(|g| !g.params.is_empty())
     }
 
     /// Store a generic function definition for later monomorphization.
     fn store_generic_function(&mut self, func: &FunctionDef) {
         let name = self.qualified_name(&func.name.name);
         let type_params = Self::extract_type_params(&func.generics);
-        self.generic_defs.insert(name, GenericDef {
-            kind: GenericDefKind::Function(func.clone()),
-            type_params,
-        });
+        self.generic_defs.insert(
+            name,
+            GenericDef {
+                kind: GenericDefKind::Function(func.clone()),
+                type_params,
+            },
+        );
     }
 
     /// Store a generic struct definition for later monomorphization.
     fn store_generic_struct(&mut self, s: &StructDef) {
         let name = self.qualified_name(&s.name.name);
         let type_params = Self::extract_type_params(&s.generics);
-        self.generic_defs.insert(name, GenericDef {
-            kind: GenericDefKind::Struct(s.clone()),
-            type_params,
-        });
+        self.generic_defs.insert(
+            name,
+            GenericDef {
+                kind: GenericDefKind::Struct(s.clone()),
+                type_params,
+            },
+        );
     }
 
     /// Store a generic enum definition for later monomorphization.
     fn store_generic_enum(&mut self, e: &EnumDef) {
         let name = self.qualified_name(&e.name.name);
         let type_params = Self::extract_type_params(&e.generics);
-        self.generic_defs.insert(name, GenericDef {
-            kind: GenericDefKind::Enum(e.clone()),
-            type_params,
-        });
+        self.generic_defs.insert(
+            name,
+            GenericDef {
+                kind: GenericDefKind::Enum(e.clone()),
+                type_params,
+            },
+        );
     }
 
     /// Get the current compiler state.
@@ -428,10 +470,6 @@ impl Compiler {
         self.temp_counter += 1;
         format!("__{}_{}__", prefix, id)
     }
-
-    // ---
-    // Emission helpers
-    // ---
 
     fn emit(&mut self, op: OpCode) {
         let line = self.current_line;
@@ -462,11 +500,9 @@ impl Compiler {
 
     /// Add a constant to the pool and return its index (without emitting load instruction).
     fn add_constant(&mut self, constant: Constant) -> Result<u16, CompileError> {
-        let idx = self.chunk().add_constant(constant);
-        if idx > u16::MAX {
-            return Err(CompileError::TooManyConstants);
-        }
-        Ok(idx)
+        self.chunk()
+            .add_constant(constant)
+            .ok_or(CompileError::TooManyConstants)
     }
 
     fn emit_jump(&mut self, op: OpCode) -> usize {
@@ -505,10 +541,6 @@ impl Compiler {
         }
     }
 
-    // ---
-    // Scope management
-    // ---
-
     fn begin_scope(&mut self) {
         self.current().scope_depth += 1;
     }
@@ -546,25 +578,6 @@ impl Compiler {
                     self.current().locals.pop();
                 }
                 None => break,
-            }
-        }
-    }
-
-    /// Emit pop instructions for locals in current scope without modifying compiler state.
-    #[allow(dead_code)]
-    fn emit_scope_pops(&mut self) {
-        let scope_depth = self.current().scope_depth;
-        // Collect what we need to emit first to avoid borrow issues
-        let pops: Vec<bool> = self.current().locals.iter().rev()
-            .take_while(|local| local.depth >= scope_depth)
-            .map(|local| local.is_captured)
-            .collect();
-
-        for is_captured in pops {
-            if is_captured {
-                self.emit(OpCode::CloseUpvalue);
-            } else {
-                self.emit(OpCode::Pop);
             }
         }
     }
@@ -673,7 +686,7 @@ impl Compiler {
                 Err(CompileError::AlreadyBorrowedMut(name.clone()))
             }
             // All other cases are OK
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
@@ -734,13 +747,10 @@ impl Compiler {
         idx
     }
 
-    // ---
-    // Module compilation
-    // ---
-
     /// Compile a module to bytecode.
     pub fn compile_module(&mut self, module: &Module) -> Result<FunctionProto, CompileError> {
-        self.states.push(CompilerState::new(Some("main".to_string()), 0));
+        self.states
+            .push(CompilerState::new(Some("main".to_string()), 0));
 
         // Pass 1: Collect generic definitions, compile non-generic items
         for item in &module.items {
@@ -821,7 +831,12 @@ impl Compiler {
             if let Some(def) = self.generic_defs.get(&inst.name).cloned() {
                 match &def.kind {
                     GenericDefKind::Function(func) => {
-                        self.monomorphize_function(&inst.name, func, &def.type_params, &inst.type_args)?;
+                        self.monomorphize_function(
+                            &inst.name,
+                            func,
+                            &def.type_params,
+                            &inst.type_args,
+                        )?;
                     }
                     GenericDefKind::Struct(s) => {
                         self.monomorphize_struct(&inst.name, s, &def.type_params, &inst.type_args)?;
@@ -845,7 +860,8 @@ impl Compiler {
         type_args: &[String],
     ) -> Result<(), CompileError> {
         // Build substitution: T -> "i64", U -> "String", etc.
-        self.current_substitution = type_params.iter()
+        self.current_substitution = type_params
+            .iter()
             .zip(type_args.iter())
             .map(|(p, a)| (p.clone(), a.clone()))
             .collect();
@@ -875,7 +891,8 @@ impl Compiler {
         type_args: &[String],
     ) -> Result<(), CompileError> {
         // Build substitution
-        self.current_substitution = type_params.iter()
+        self.current_substitution = type_params
+            .iter()
             .zip(type_args.iter())
             .map(|(p, a)| (p.clone(), a.clone()))
             .collect();
@@ -901,7 +918,8 @@ impl Compiler {
         type_args: &[String],
     ) -> Result<(), CompileError> {
         // Build substitution
-        self.current_substitution = type_params.iter()
+        self.current_substitution = type_params
+            .iter()
             .zip(type_args.iter())
             .map(|(p, a)| (p.clone(), a.clone()))
             .collect();
@@ -943,7 +961,7 @@ impl Compiler {
                     seg.ident.name.to_string()
                 } else {
                     return Err(CompileError::Custom(
-                        "Type alias has empty type path".to_string()
+                        "Type alias has empty type path".to_string(),
                     ));
                 }
             }
@@ -983,7 +1001,7 @@ impl Compiler {
         } else {
             // External module: mod foo; - not supported yet
             return Err(CompileError::Custom(
-                "External modules (mod foo;) not yet supported. Use inline modules.".to_string()
+                "External modules (mod foo;) not yet supported. Use inline modules.".to_string(),
             ));
         }
 
@@ -1016,7 +1034,7 @@ impl Compiler {
             UseTree::Glob { path: _ } => {
                 // use foo::* - not supported yet (would need module introspection)
                 Err(CompileError::Custom(
-                    "Glob imports (use foo::*) not yet supported".to_string()
+                    "Glob imports (use foo::*) not yet supported".to_string(),
                 ))
             }
             UseTree::Nested { path, items } => {
@@ -1039,29 +1057,44 @@ impl Compiler {
     }
 
     /// Compile a struct with a custom name (for monomorphization).
-    fn compile_struct_def_with_name(&mut self, struct_def: &StructDef, name: &str) -> Result<(), CompileError> {
+    fn compile_struct_def_with_name(
+        &mut self,
+        struct_def: &StructDef,
+        name: &str,
+    ) -> Result<(), CompileError> {
         self.compile_struct_def_impl(struct_def, name)
     }
 
     /// Internal implementation for struct compilation.
-    fn compile_struct_def_impl(&mut self, struct_def: &StructDef, name: &str) -> Result<(), CompileError> {
+    fn compile_struct_def_impl(
+        &mut self,
+        struct_def: &StructDef,
+        name: &str,
+    ) -> Result<(), CompileError> {
         let (fields, defaults) = match &struct_def.fields {
             StructFields::Named(fields) => {
                 let field_names = fields.iter().map(|f| f.name.name.to_string()).collect();
-                let field_defaults: HashMap<String, Expr> = fields.iter()
+                let field_defaults: HashMap<String, Expr> = fields
+                    .iter()
                     .filter_map(|f| {
-                        f.default.as_ref().map(|d| (f.name.name.to_string(), (**d).clone()))
+                        f.default
+                            .as_ref()
+                            .map(|d| (f.name.name.to_string(), (**d).clone()))
                     })
                     .collect();
                 (field_names, field_defaults)
             }
             StructFields::Tuple(fields) => {
                 // For tuple structs, use numeric field names
-                ((0..fields.len()).map(|i| i.to_string()).collect(), HashMap::new())
+                (
+                    (0..fields.len()).map(|i| i.to_string()).collect(),
+                    HashMap::new(),
+                )
             }
             StructFields::Unit => (Vec::new(), HashMap::new()),
         };
-        self.struct_types.insert(name.to_string(), StructTypeInfo { fields, defaults });
+        self.struct_types
+            .insert(name.to_string(), StructTypeInfo { fields, defaults });
         Ok(())
     }
 
@@ -1071,12 +1104,20 @@ impl Compiler {
     }
 
     /// Compile an enum with a custom name (for monomorphization).
-    fn compile_enum_def_with_name(&mut self, enum_def: &EnumDef, name: &str) -> Result<(), CompileError> {
+    fn compile_enum_def_with_name(
+        &mut self,
+        enum_def: &EnumDef,
+        name: &str,
+    ) -> Result<(), CompileError> {
         self.compile_enum_def_impl(enum_def, name)
     }
 
     /// Internal implementation for enum compilation.
-    fn compile_enum_def_impl(&mut self, enum_def: &EnumDef, name: &str) -> Result<(), CompileError> {
+    fn compile_enum_def_impl(
+        &mut self,
+        enum_def: &EnumDef,
+        name: &str,
+    ) -> Result<(), CompileError> {
         let mut variants: HashMap<String, (u8, usize)> = HashMap::new();
         let mut variants_ordered: Vec<(String, usize)> = Vec::new();
 
@@ -1091,7 +1132,13 @@ impl Compiler {
             variants_ordered.push((variant_name, field_count));
         }
 
-        self.enum_types.insert(name.to_string(), EnumTypeInfo { variants, variants_ordered });
+        self.enum_types.insert(
+            name.to_string(),
+            EnumTypeInfo {
+                variants,
+                variants_ordered,
+            },
+        );
         Ok(())
     }
 
@@ -1100,15 +1147,12 @@ impl Compiler {
         let mut methods = Vec::new();
 
         for item in &trait_def.items {
-            match item {
-                TraitItem::Function(func) => {
-                    let method_info = TraitMethodInfo {
-                        name: func.name.name.to_string(),
-                        has_default: func.default.is_some(),
-                    };
-                    methods.push(method_info);
-                }
-                _ => {}
+            if let TraitItem::Function(func) = item {
+                let method_info = TraitMethodInfo {
+                    name: func.name.name.to_string(),
+                    has_default: func.default.is_some(),
+                };
+                methods.push(method_info);
             }
         }
 
@@ -1123,10 +1167,16 @@ impl Compiler {
                 if let Some(seg) = path.segments.first() {
                     seg.ident.name.to_string()
                 } else {
-                    return Err(CompileError::Custom("impl block has empty type path".to_string()));
+                    return Err(CompileError::Custom(
+                        "impl block has empty type path".to_string(),
+                    ));
                 }
             }
-            _ => return Err(CompileError::Custom("unsupported impl block type".to_string())),
+            _ => {
+                return Err(CompileError::Custom(
+                    "unsupported impl block type".to_string(),
+                ))
+            }
         };
 
         // If this is a trait impl, verify all required methods are present
@@ -1134,7 +1184,9 @@ impl Compiler {
             let trait_name = if let Some(seg) = trait_path.segments.first() {
                 seg.ident.name.to_string()
             } else {
-                return Err(CompileError::Custom("impl block has empty trait path".to_string()));
+                return Err(CompileError::Custom(
+                    "impl block has empty trait path".to_string(),
+                ));
             };
 
             // Check trait exists and get required methods
@@ -1162,11 +1214,8 @@ impl Compiler {
 
         // Compile each method
         for item in &impl_block.items {
-            match item {
-                ImplItem::Function(func) => {
-                    self.compile_method(func, &type_name)?;
-                }
-                _ => {}
+            if let ImplItem::Function(func) = item {
+                self.compile_method(func, &type_name)?;
             }
         }
 
@@ -1177,7 +1226,9 @@ impl Compiler {
         self.current_line = func.span.start;
 
         // Calculate min_arity (params without defaults)
-        let min_arity = func.params.iter()
+        let min_arity = func
+            .params
+            .iter()
             .take_while(|p| p.default.is_none())
             .count() as u8;
 
@@ -1225,7 +1276,7 @@ impl Compiler {
         };
 
         // Store the function as a constant
-        let proto_idx = self.chunk().add_constant(Constant::Function(Box::new(proto)));
+        let proto_idx = self.add_constant(Constant::Function(Box::new(proto)))?;
 
         // Emit closure creation with upvalue info
         self.emit(OpCode::Closure);
@@ -1237,8 +1288,8 @@ impl Compiler {
         }
 
         // Register as a method: DefineMethod [type_name_idx: u16, method_name_idx: u16]
-        let type_name_idx = self.chunk().add_constant(Constant::String(type_name.to_string()));
-        let method_name_idx = self.chunk().add_constant(Constant::String(func.name.name.to_string()));
+        let type_name_idx = self.add_constant(Constant::String(type_name.to_string()))?;
+        let method_name_idx = self.add_constant(Constant::String(func.name.name.to_string()))?;
 
         self.emit(OpCode::DefineMethod);
         self.emit_u16(type_name_idx);
@@ -1263,7 +1314,10 @@ impl Compiler {
                 };
                 self.add_constant(constant)
             }
-            ExprKind::Unary { op: UnaryOp::Neg, operand } => {
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => {
                 // Handle negative literals like -1
                 if let ExprKind::Literal(Literal::Int(n)) = &operand.kind {
                     self.add_constant(Constant::Int(-n))
@@ -1271,12 +1325,12 @@ impl Compiler {
                     self.add_constant(Constant::Float(-n))
                 } else {
                     Err(CompileError::Custom(
-                        "Default parameter must be a literal value".to_string()
+                        "Default parameter must be a literal value".to_string(),
                     ))
                 }
             }
             _ => Err(CompileError::Custom(
-                "Default parameter must be a literal value".to_string()
+                "Default parameter must be a literal value".to_string(),
             )),
         }
     }
@@ -1285,7 +1339,9 @@ impl Compiler {
         self.current_line = func.span.start;
 
         // Calculate min_arity (params without defaults)
-        let min_arity = func.params.iter()
+        let min_arity = func
+            .params
+            .iter()
             .take_while(|p| p.default.is_none())
             .count() as u8;
 
@@ -1331,7 +1387,7 @@ impl Compiler {
         };
 
         // Store the function as a constant and define it
-        let idx = self.chunk().add_constant(Constant::Function(Box::new(proto)));
+        let idx = self.add_constant(Constant::Function(Box::new(proto)))?;
 
         // Emit closure creation with upvalue info
         self.emit(OpCode::Closure);
@@ -1344,7 +1400,7 @@ impl Compiler {
 
         // Store in global with qualified name
         let qualified = self.qualified_name(&func.name.name);
-        let name_idx = self.chunk().add_constant(Constant::String(qualified));
+        let name_idx = self.add_constant(Constant::String(qualified))?;
         self.emit(OpCode::StoreGlobal);
         self.emit_u16(name_idx);
 
@@ -1352,11 +1408,17 @@ impl Compiler {
     }
 
     /// Compile a function with a custom name (for monomorphization).
-    fn compile_function_def_with_name(&mut self, func: &FunctionDef, name: &str) -> Result<(), CompileError> {
+    fn compile_function_def_with_name(
+        &mut self,
+        func: &FunctionDef,
+        name: &str,
+    ) -> Result<(), CompileError> {
         self.current_line = func.span.start;
 
         // Calculate min_arity (params without defaults)
-        let min_arity = func.params.iter()
+        let min_arity = func
+            .params
+            .iter()
             .take_while(|p| p.default.is_none())
             .count() as u8;
 
@@ -1402,7 +1464,7 @@ impl Compiler {
         };
 
         // Store the function as a constant and define it
-        let idx = self.chunk().add_constant(Constant::Function(Box::new(proto)));
+        let idx = self.add_constant(Constant::Function(Box::new(proto)))?;
 
         // Emit closure creation with upvalue info
         self.emit(OpCode::Closure);
@@ -1414,7 +1476,7 @@ impl Compiler {
         }
 
         // Store in global with the mangled name
-        let name_idx = self.chunk().add_constant(Constant::String(name.to_string()));
+        let name_idx = self.add_constant(Constant::String(name.to_string()))?;
         self.emit(OpCode::StoreGlobal);
         self.emit_u16(name_idx);
 
@@ -1427,16 +1489,12 @@ impl Compiler {
 
         // Store with qualified name
         let qualified = self.qualified_name(&c.name.name);
-        let name_idx = self.chunk().add_constant(Constant::String(qualified));
+        let name_idx = self.add_constant(Constant::String(qualified))?;
         self.emit(OpCode::StoreGlobal);
         self.emit_u16(name_idx);
 
         Ok(())
     }
-
-    // ---
-    // Statement compilation
-    // ---
 
     fn compile_block(&mut self, block: &Block) -> Result<(), CompileError> {
         self.begin_scope();
@@ -1491,8 +1549,13 @@ impl Compiler {
     fn pattern_needs_check(&self, pattern: &Pattern) -> bool {
         match &pattern.kind {
             PatternKind::Wildcard => false,
-            PatternKind::Binding { subpattern: None, .. } => false,
-            PatternKind::Binding { subpattern: Some(sub), .. } => self.pattern_needs_check(sub),
+            PatternKind::Binding {
+                subpattern: None, ..
+            } => false,
+            PatternKind::Binding {
+                subpattern: Some(sub),
+                ..
+            } => self.pattern_needs_check(sub),
             PatternKind::Literal(_) => true,
             PatternKind::Path(_) => true,
             PatternKind::TupleStruct { .. } => true,
@@ -1514,12 +1577,17 @@ impl Compiler {
                 self.emit(OpCode::True);
                 Ok(())
             }
-            PatternKind::Binding { subpattern: None, .. } => {
+            PatternKind::Binding {
+                subpattern: None, ..
+            } => {
                 // Always matches - just push true (scrutinee stays)
                 self.emit(OpCode::True);
                 Ok(())
             }
-            PatternKind::Binding { subpattern: Some(sub), .. } => {
+            PatternKind::Binding {
+                subpattern: Some(sub),
+                ..
+            } => {
                 // Check the subpattern
                 self.compile_pattern_check(sub)
             }
@@ -1558,8 +1626,14 @@ impl Compiler {
             PatternKind::TupleStruct { path, fields } => {
                 // Check if scrutinee matches enum variant with fields
                 if path.segments.len() >= 2 {
-                    let enum_name = path.segments[path.segments.len() - 2].ident.name.to_string();
-                    let variant_name = path.segments[path.segments.len() - 1].ident.name.to_string();
+                    let enum_name = path.segments[path.segments.len() - 2]
+                        .ident
+                        .name
+                        .to_string();
+                    let variant_name = path.segments[path.segments.len() - 1]
+                        .ident
+                        .name
+                        .to_string();
 
                     self.emit(OpCode::Dup);
                     let enum_name_idx = self.add_constant(Constant::String(enum_name))?;
@@ -1584,7 +1658,9 @@ impl Compiler {
                     let _ = fields;
                     Ok(())
                 } else {
-                    Err(CompileError::Custom("Invalid tuple struct pattern".to_string()))
+                    Err(CompileError::Custom(
+                        "Invalid tuple struct pattern".to_string(),
+                    ))
                 }
             }
             PatternKind::Tuple(patterns) => {
@@ -1639,7 +1715,11 @@ impl Compiler {
         }
     }
 
-    fn compile_pattern_binding(&mut self, pattern: &Pattern, is_param: bool) -> Result<(), CompileError> {
+    fn compile_pattern_binding(
+        &mut self,
+        pattern: &Pattern,
+        is_param: bool,
+    ) -> Result<(), CompileError> {
         match &pattern.kind {
             PatternKind::Binding { name, mutable, .. } => {
                 if is_param {
@@ -1716,10 +1796,6 @@ impl Compiler {
         }
     }
 
-    // ---
-    // Expression compilation
-    // ---
-
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), CompileError> {
         self.current_line = expr.span.start;
 
@@ -1768,11 +1844,23 @@ impl Compiler {
                 match op {
                     BinaryOp::Add => {
                         if let Some(ty) = left_ty {
-                            if self.type_annotations.as_ref().map_or(false, |a| a.is_integer(ty)) {
+                            if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_integer(ty))
+                            {
                                 self.emit(OpCode::IAdd);
-                            } else if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                            } else if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_float(ty))
+                            {
                                 self.emit(OpCode::FAdd);
-                            } else if self.type_annotations.as_ref().map_or(false, |a| a.is_string(ty)) {
+                            } else if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_string(ty))
+                            {
                                 self.emit(OpCode::SConcat);
                             } else {
                                 self.emit(OpCode::Add);
@@ -1783,9 +1871,17 @@ impl Compiler {
                     }
                     BinaryOp::Sub => {
                         if let Some(ty) = left_ty {
-                            if self.type_annotations.as_ref().map_or(false, |a| a.is_integer(ty)) {
+                            if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_integer(ty))
+                            {
                                 self.emit(OpCode::ISub);
-                            } else if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                            } else if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_float(ty))
+                            {
                                 self.emit(OpCode::FSub);
                             } else {
                                 self.emit(OpCode::Sub);
@@ -1796,7 +1892,11 @@ impl Compiler {
                     }
                     BinaryOp::Mul => {
                         if let Some(ty) = left_ty {
-                            if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                            if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_float(ty))
+                            {
                                 self.emit(OpCode::FMul);
                             } else {
                                 self.emit(OpCode::Mul);
@@ -1807,7 +1907,11 @@ impl Compiler {
                     }
                     BinaryOp::Div => {
                         if let Some(ty) = left_ty {
-                            if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                            if self
+                                .type_annotations
+                                .as_ref()
+                                .is_some_and(|a| a.is_float(ty))
+                            {
                                 self.emit(OpCode::FDiv);
                             } else {
                                 self.emit(OpCode::Div);
@@ -1865,11 +1969,14 @@ impl Compiler {
                         let method_name = path.segments[1].ident.name.to_string();
 
                         // First check if it's an enum variant (may need on-demand monomorphization)
-                        let enum_info = if let Some(info) = self.enum_types.get(&type_name).cloned() {
+                        let enum_info = if let Some(info) = self.enum_types.get(&type_name).cloned()
+                        {
                             Some((type_name.clone(), info))
                         } else if self.generic_defs.contains_key(&type_name) {
                             // Generic enum - check if we have instantiation info and monomorphize
-                            let call_site_info = self.type_annotations.as_ref()
+                            let call_site_info = self
+                                .type_annotations
+                                .as_ref()
                                 .and_then(|ann| ann.get_call_site(callee.span.start))
                                 .map(|(_, type_args)| type_args.clone());
 
@@ -1879,11 +1986,18 @@ impl Compiler {
                                 if !self.enum_types.contains_key(&mangled_name) {
                                     if let Some(def) = self.generic_defs.get(&type_name).cloned() {
                                         if let GenericDefKind::Enum(e) = &def.kind {
-                                            self.monomorphize_enum(&type_name, &e, &def.type_params, &type_args)?;
+                                            self.monomorphize_enum(
+                                                &type_name,
+                                                e,
+                                                &def.type_params,
+                                                &type_args,
+                                            )?;
                                         }
                                     }
                                 }
-                                self.enum_types.get(&mangled_name).map(|info| (mangled_name, info.clone()))
+                                self.enum_types
+                                    .get(&mangled_name)
+                                    .map(|info| (mangled_name, info.clone()))
                             } else {
                                 None
                             }
@@ -1892,7 +2006,9 @@ impl Compiler {
                         };
 
                         if let Some((enum_name, info)) = enum_info {
-                            if let Some(&(variant_idx, field_count)) = info.variants.get(&method_name) {
+                            if let Some(&(variant_idx, field_count)) =
+                                info.variants.get(&method_name)
+                            {
                                 if field_count == args.len() {
                                     // Compile arguments (variant fields)
                                     for arg in args {
@@ -1912,7 +2028,10 @@ impl Compiler {
                                 } else {
                                     return Err(CompileError::Custom(format!(
                                         "Enum variant {}::{} expects {} field(s), got {}",
-                                        type_name, method_name, field_count, args.len()
+                                        type_name,
+                                        method_name,
+                                        field_count,
+                                        args.len()
                                     )));
                                 }
                             }
@@ -1925,8 +2044,9 @@ impl Compiler {
                                 self.compile_expr(&arg.value)?;
                             }
                             // Emit CallStatic opcode
-                            let type_name_idx = self.chunk().add_constant(Constant::String(type_name));
-                            let method_name_idx = self.chunk().add_constant(Constant::String(method_name));
+                            let type_name_idx = self.add_constant(Constant::String(type_name))?;
+                            let method_name_idx =
+                                self.add_constant(Constant::String(method_name))?;
                             self.emit(OpCode::CallStatic);
                             self.emit_u16(type_name_idx);
                             self.emit_u16(method_name_idx);
@@ -1943,14 +2063,16 @@ impl Compiler {
 
                         // Check if there's a generic instantiation at the callee's span
                         // (type checker records at path span, not call expression span)
-                        if let Some((_, type_args)) = self.type_annotations.as_ref()
+                        if let Some((_, type_args)) = self
+                            .type_annotations
+                            .as_ref()
                             .and_then(|ann| ann.get_call_site(callee.span.start))
                         {
                             // This is a call to a generic function - use the mangled name
                             let mangled_name = self.mangle_name(&func_name, type_args);
 
                             // Load the mangled function first (function must be on stack before args)
-                            let name_idx = self.chunk().add_constant(Constant::String(mangled_name));
+                            let name_idx = self.add_constant(Constant::String(mangled_name))?;
                             self.emit(OpCode::LoadGlobal);
                             self.emit_u16(name_idx);
 
@@ -1977,7 +2099,11 @@ impl Compiler {
                 Ok(())
             }
 
-            ExprKind::MethodCall { receiver, method, args } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 // Push receiver first, then args
                 self.compile_expr(receiver)?;
                 for arg in args {
@@ -1985,7 +2111,8 @@ impl Compiler {
                 }
                 // CallMethod [method_name_idx: u16, arg_count: u8]
                 // arg_count includes receiver
-                let method_name_idx = self.add_constant(Constant::String(method.name.to_string()))?;
+                let method_name_idx =
+                    self.add_constant(Constant::String(method.name.to_string()))?;
                 self.emit(OpCode::CallMethod);
                 self.emit_u16(method_name_idx);
                 self.emit_byte((args.len() + 1) as u8); // +1 for receiver
@@ -2000,7 +2127,8 @@ impl Compiler {
                     self.emit_byte(idx);
                 } else {
                     // Named field - add field name to constants and use GetFieldNamed
-                    let field_name_idx = self.add_constant(Constant::String(field.name.to_string()))?;
+                    let field_name_idx =
+                        self.add_constant(Constant::String(field.name.to_string()))?;
                     self.emit(OpCode::GetFieldNamed);
                     self.emit_u16(field_name_idx);
                 }
@@ -2014,7 +2142,11 @@ impl Compiler {
                 Ok(())
             }
 
-            ExprKind::If { condition, then_branch, else_branch } => {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 self.compile_expr(condition)?;
                 // JumpIfFalse pops the condition, so we don't need an extra Pop
                 let then_jump = self.emit_jump(OpCode::JumpIfFalse);
@@ -2054,7 +2186,9 @@ impl Compiler {
                 Ok(())
             }
 
-            ExprKind::While { condition, body, .. } => {
+            ExprKind::While {
+                condition, body, ..
+            } => {
                 let loop_start = self.chunk().len();
                 self.current().loops.push(LoopInfo {
                     start: loop_start,
@@ -2079,7 +2213,12 @@ impl Compiler {
                 Ok(())
             }
 
-            ExprKind::For { pattern, iterable, body, .. } => {
+            ExprKind::For {
+                pattern,
+                iterable,
+                body,
+                ..
+            } => {
                 // for x in iter { body }
                 // Put iterator in a local so stack positions match locals array
                 self.begin_scope();
@@ -2152,9 +2291,7 @@ impl Compiler {
                 Ok(())
             }
 
-            ExprKind::Block(block) => {
-                self.compile_block(block)
-            }
+            ExprKind::Block(block) => self.compile_block(block),
 
             ExprKind::Tuple(elems) => {
                 for elem in elems {
@@ -2184,7 +2321,8 @@ impl Compiler {
 
             ExprKind::Closure { params, body, .. } => {
                 // Compile closure
-                self.states.push(CompilerState::new(None, params.len() as u8));
+                self.states
+                    .push(CompilerState::new(None, params.len() as u8));
                 self.begin_scope();
 
                 for param in params {
@@ -2207,7 +2345,7 @@ impl Compiler {
                     defaults: Vec::new(),
                 };
 
-                let idx = self.chunk().add_constant(Constant::Function(Box::new(proto)));
+                let idx = self.add_constant(Constant::Function(Box::new(proto)))?;
                 self.emit(OpCode::Closure);
                 self.emit_u16(idx);
                 self.emit_byte(upvalues.len() as u8);
@@ -2246,11 +2384,13 @@ impl Compiler {
                 Ok(())
             }
 
-            ExprKind::Cast { expr: inner, .. } => {
-                self.compile_expr(inner)
-            }
+            ExprKind::Cast { expr: inner, .. } => self.compile_expr(inner),
 
-            ExprKind::Range { start, end, inclusive } => {
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 if let Some(start) = start {
                     self.compile_expr(start)?;
                 } else {
@@ -2274,13 +2414,17 @@ impl Compiler {
 
             ExprKind::Struct { path, fields, .. } => {
                 // Get struct name from path, resolving any type aliases
-                let raw_name = path.segments.last()
+                let raw_name = path
+                    .segments
+                    .last()
                     .map(|s| s.ident.name.to_string())
                     .unwrap_or_default();
                 let base_struct_name = self.resolve_type_alias(&raw_name);
 
                 // Check for generic struct instantiation at this call site
-                let struct_name = if let Some((_, type_args)) = self.type_annotations.as_ref()
+                let struct_name = if let Some((_, type_args)) = self
+                    .type_annotations
+                    .as_ref()
                     .and_then(|ann| ann.get_call_site(expr.span.start))
                 {
                     // This is a generic struct instantiation - use the mangled name
@@ -2290,11 +2434,16 @@ impl Compiler {
                 };
 
                 // Look up struct type to get field order and defaults
-                let (field_order, field_defaults) = self.struct_types.get(&struct_name)
+                let (field_order, field_defaults) = self
+                    .struct_types
+                    .get(&struct_name)
                     .map(|info| (info.fields.clone(), info.defaults.clone()))
                     .unwrap_or_else(|| {
                         // Unknown struct, use fields as provided
-                        (fields.iter().map(|f| f.name.name.to_string()).collect(), HashMap::new())
+                        (
+                            fields.iter().map(|f| f.name.name.to_string()).collect(),
+                            HashMap::new(),
+                        )
                     });
 
                 // Build a map of provided field values
@@ -2390,7 +2539,8 @@ impl Compiler {
 
                     // Jump to end after successful arm
                     // We need this even for the last arm if there's check_fail code to skip
-                    let needs_end_jump = !is_last || guard_fail_jump.is_some() || next_arm_jump.is_some();
+                    let needs_end_jump =
+                        !is_last || guard_fail_jump.is_some() || next_arm_jump.is_some();
                     if needs_end_jump {
                         let jump = self.emit_jump(OpCode::Jump);
                         end_jumps.push(jump);
@@ -2451,7 +2601,8 @@ impl Compiler {
                 // We need: [str_concat, result_so_far, new_part] then Call
                 for part in &parts[1..] {
                     // Load str_concat function first
-                    let concat_idx = self.add_constant(Constant::String("str_concat".to_string()))?;
+                    let concat_idx =
+                        self.add_constant(Constant::String("str_concat".to_string()))?;
                     self.emit(OpCode::LoadGlobal);
                     self.emit_u16(concat_idx);
                     // Stack: [result_so_far, str_concat]
@@ -2539,7 +2690,7 @@ impl Compiler {
         };
 
         // Global variable
-        let name_idx = self.chunk().add_constant(Constant::String(global_name));
+        let name_idx = self.add_constant(Constant::String(global_name))?;
         self.emit(OpCode::LoadGlobal);
         self.emit_u16(name_idx);
         Ok(())
@@ -2560,7 +2711,9 @@ impl Compiler {
                 Some((first.clone(), info))
             } else if self.generic_defs.contains_key(&first) {
                 // Generic enum - check for instantiation info and monomorphize
-                let call_site_info = self.type_annotations.as_ref()
+                let call_site_info = self
+                    .type_annotations
+                    .as_ref()
                     .and_then(|ann| ann.get_call_site(path.segments[0].ident.span.start))
                     .map(|(_, type_args)| type_args.clone());
 
@@ -2569,11 +2722,13 @@ impl Compiler {
                     if !self.enum_types.contains_key(&mangled_name) {
                         if let Some(def) = self.generic_defs.get(&first).cloned() {
                             if let GenericDefKind::Enum(e) = &def.kind {
-                                self.monomorphize_enum(&first, &e, &def.type_params, &type_args)?;
+                                self.monomorphize_enum(&first, e, &def.type_params, &type_args)?;
                             }
                         }
                     }
-                    self.enum_types.get(&mangled_name).map(|info| (mangled_name, info.clone()))
+                    self.enum_types
+                        .get(&mangled_name)
+                        .map(|info| (mangled_name, info.clone()))
                 } else {
                     None
                 }
@@ -2606,18 +2761,19 @@ impl Compiler {
 
             // Not an enum - treat as module path (first::second)
             let full_path = format!("{}::{}", first, second);
-            let name_idx = self.chunk().add_constant(Constant::String(full_path));
+            let name_idx = self.add_constant(Constant::String(full_path))?;
             self.emit(OpCode::LoadGlobal);
             self.emit_u16(name_idx);
             Ok(())
         } else {
             // Multi-segment path: a::b::c -> load global "a::b::c"
-            let full_path: String = path.segments
+            let full_path: String = path
+                .segments
                 .iter()
                 .map(|s| s.ident.name.to_string())
                 .collect::<Vec<_>>()
                 .join("::");
-            let name_idx = self.chunk().add_constant(Constant::String(full_path));
+            let name_idx = self.add_constant(Constant::String(full_path))?;
             self.emit(OpCode::LoadGlobal);
             self.emit_u16(name_idx);
             Ok(())
@@ -2648,7 +2804,7 @@ impl Compiler {
                 }
 
                 // Global
-                let name_idx = self.chunk().add_constant(Constant::String(name.to_string()));
+                let name_idx = self.add_constant(Constant::String(name.to_string()))?;
                 self.emit(OpCode::StoreGlobal);
                 self.emit_u16(name_idx);
                 Ok(())
@@ -2660,7 +2816,8 @@ impl Compiler {
                     self.emit_byte(idx);
                 } else {
                     // Named field - add field name to constants and use SetFieldNamed
-                    let field_name_idx = self.add_constant(Constant::String(field.name.to_string()))?;
+                    let field_name_idx =
+                        self.add_constant(Constant::String(field.name.to_string()))?;
                     self.emit(OpCode::SetFieldNamed);
                     self.emit_u16(field_name_idx);
                 }
@@ -2681,7 +2838,9 @@ impl Compiler {
                 self.emit(OpCode::DerefStore);
                 Ok(())
             }
-            _ => Err(CompileError::Custom("Invalid assignment target".to_string())),
+            _ => Err(CompileError::Custom(
+                "Invalid assignment target".to_string(),
+            )),
         }
     }
 }
@@ -2700,7 +2859,11 @@ mod tests {
     fn compile(source: &str) -> Result<FunctionProto, CompileError> {
         let mut parser = Parser::new(source, 0);
         let module = parser.parse_module();
-        assert!(parser.errors().is_empty(), "Parse errors: {:?}", parser.errors());
+        assert!(
+            parser.errors().is_empty(),
+            "Parse errors: {:?}",
+            parser.errors()
+        );
 
         let mut compiler = Compiler::new();
         compiler.compile_module(&module)
@@ -2728,7 +2891,11 @@ mod tests {
         let proto = compile("fn main() { 1 + 2 * 3 }").unwrap();
         let main_func = get_first_function(&proto).expect("Should have main function");
         let disasm = main_func.chunk.disassemble("main");
-        assert!(disasm.contains("ADD") || disasm.contains("MUL"), "Disassembly:\n{}", disasm);
+        assert!(
+            disasm.contains("ADD") || disasm.contains("MUL"),
+            "Disassembly:\n{}",
+            disasm
+        );
     }
 
     #[test]
@@ -2736,7 +2903,11 @@ mod tests {
         let proto = compile("fn main() { let x = 1; let y = 2; x + y }").unwrap();
         let main_func = get_first_function(&proto).expect("Should have main function");
         let disasm = main_func.chunk.disassemble("main");
-        assert!(disasm.contains("LOAD_LOCAL") || disasm.contains("STORE"), "Disassembly:\n{}", disasm);
+        assert!(
+            disasm.contains("LOAD_LOCAL") || disasm.contains("STORE"),
+            "Disassembly:\n{}",
+            disasm
+        );
     }
 
     #[test]

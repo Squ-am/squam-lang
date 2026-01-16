@@ -45,9 +45,12 @@ impl Precedence {
         match op {
             BinaryOp::Or => Precedence::Or,
             BinaryOp::And => Precedence::And,
-            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                Precedence::Comparison
-            }
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => Precedence::Comparison,
             BinaryOp::BitOr => Precedence::BitOr,
             BinaryOp::BitXor => Precedence::BitXor,
             BinaryOp::BitAnd => Precedence::BitAnd,
@@ -81,9 +84,12 @@ impl Precedence {
             TokenKind::AndAnd => Precedence::And,
 
             // Comparison
-            TokenKind::EqEq | TokenKind::BangEq | TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
-                Precedence::Comparison
-            }
+            TokenKind::EqEq
+            | TokenKind::BangEq
+            | TokenKind::Lt
+            | TokenKind::LtEq
+            | TokenKind::Gt
+            | TokenKind::GtEq => Precedence::Comparison,
 
             // Bitwise
             TokenKind::Or => Precedence::BitOr,
@@ -99,7 +105,9 @@ impl Precedence {
             TokenKind::As => Precedence::Cast,
 
             // Postfix
-            TokenKind::LParen | TokenKind::LBracket | TokenKind::Dot | TokenKind::Question => Precedence::Postfix,
+            TokenKind::LParen | TokenKind::LBracket | TokenKind::Dot | TokenKind::Question => {
+                Precedence::Postfix
+            }
 
             _ => return None,
         })

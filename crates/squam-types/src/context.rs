@@ -1,5 +1,5 @@
+use crate::types::{GenericVar, InferVar, Ty, TypeId};
 use rustc_hash::FxHashMap;
-use crate::types::{Ty, TypeId, InferVar, GenericVar};
 
 /// The type context manages type interning and provides access to common types.
 pub struct TypeContext {
@@ -24,28 +24,28 @@ impl TypeContext {
         };
 
         // Register primitive types in order matching TypeId constants
-        ctx.register_primitive(Ty::Unit);      // 0
-        ctx.register_primitive(Ty::Bool);      // 1
-        ctx.register_primitive(Ty::I8);        // 2
-        ctx.register_primitive(Ty::I16);       // 3
-        ctx.register_primitive(Ty::I32);       // 4
-        ctx.register_primitive(Ty::I64);       // 5
-        ctx.register_primitive(Ty::I128);      // 6
-        ctx.register_primitive(Ty::Isize);     // 7
-        ctx.register_primitive(Ty::U8);        // 8
-        ctx.register_primitive(Ty::U16);       // 9
-        ctx.register_primitive(Ty::U32);       // 10
-        ctx.register_primitive(Ty::U64);       // 11
-        ctx.register_primitive(Ty::U128);      // 12
-        ctx.register_primitive(Ty::Usize);     // 13
-        ctx.register_primitive(Ty::F32);       // 14
-        ctx.register_primitive(Ty::F64);       // 15
-        ctx.register_primitive(Ty::Char);      // 16
-        ctx.register_primitive(Ty::Str);       // 17
-        ctx.register_primitive(Ty::String);    // 18
-        ctx.register_primitive(Ty::Never);     // 19
-        ctx.register_primitive(Ty::Error);     // 20
-        ctx.register_primitive(Ty::Any);       // 21
+        ctx.register_primitive(Ty::Unit); // 0
+        ctx.register_primitive(Ty::Bool); // 1
+        ctx.register_primitive(Ty::I8); // 2
+        ctx.register_primitive(Ty::I16); // 3
+        ctx.register_primitive(Ty::I32); // 4
+        ctx.register_primitive(Ty::I64); // 5
+        ctx.register_primitive(Ty::I128); // 6
+        ctx.register_primitive(Ty::Isize); // 7
+        ctx.register_primitive(Ty::U8); // 8
+        ctx.register_primitive(Ty::U16); // 9
+        ctx.register_primitive(Ty::U32); // 10
+        ctx.register_primitive(Ty::U64); // 11
+        ctx.register_primitive(Ty::U128); // 12
+        ctx.register_primitive(Ty::Usize); // 13
+        ctx.register_primitive(Ty::F32); // 14
+        ctx.register_primitive(Ty::F64); // 15
+        ctx.register_primitive(Ty::Char); // 16
+        ctx.register_primitive(Ty::Str); // 17
+        ctx.register_primitive(Ty::String); // 18
+        ctx.register_primitive(Ty::Never); // 19
+        ctx.register_primitive(Ty::Error); // 20
+        ctx.register_primitive(Ty::Any); // 21
 
         ctx
     }
@@ -210,7 +210,10 @@ impl TypeContext {
 
     /// Create a function type.
     pub fn function(&mut self, params: Vec<TypeId>, return_type: TypeId) -> TypeId {
-        self.intern(Ty::Function { params, return_type })
+        self.intern(Ty::Function {
+            params,
+            return_type,
+        })
     }
 
     /// Create a generic type variable.
@@ -257,7 +260,10 @@ impl TypeContext {
                 let new_inner = self.substitute(inner, substitutions);
                 self.reference(new_inner, mutable)
             }
-            Ty::Function { params, return_type } => {
+            Ty::Function {
+                params,
+                return_type,
+            } => {
                 let new_params: Vec<_> = params
                     .iter()
                     .map(|&p| self.substitute(p, substitutions))
@@ -275,13 +281,15 @@ impl TypeContext {
             }
             Ty::Struct(s) => {
                 // Substitute field types
-                let new_fields: Vec<_> = s.fields.iter().map(|f| {
-                    crate::types::StructField {
+                let new_fields: Vec<_> = s
+                    .fields
+                    .iter()
+                    .map(|f| crate::types::StructField {
                         name: f.name.clone(),
                         ty: self.substitute(f.ty, substitutions),
                         is_public: f.is_public,
-                    }
-                }).collect();
+                    })
+                    .collect();
                 // Create a new struct type with substituted fields
                 // Keep generic_params empty since this is a concrete instantiation
                 self.intern(Ty::Struct(crate::types::StructType {
@@ -292,29 +300,39 @@ impl TypeContext {
             }
             Ty::Enum(e) => {
                 // Substitute variant types
-                let new_variants: Vec<_> = e.variants.iter().map(|v| {
-                    let new_fields = match &v.fields {
-                        crate::types::VariantFields::Unit => crate::types::VariantFields::Unit,
-                        crate::types::VariantFields::Tuple(types) => {
-                            crate::types::VariantFields::Tuple(
-                                types.iter().map(|&t| self.substitute(t, substitutions)).collect()
-                            )
+                let new_variants: Vec<_> = e
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let new_fields = match &v.fields {
+                            crate::types::VariantFields::Unit => crate::types::VariantFields::Unit,
+                            crate::types::VariantFields::Tuple(types) => {
+                                crate::types::VariantFields::Tuple(
+                                    types
+                                        .iter()
+                                        .map(|&t| self.substitute(t, substitutions))
+                                        .collect(),
+                                )
+                            }
+                            crate::types::VariantFields::Struct(fields) => {
+                                crate::types::VariantFields::Struct(
+                                    fields
+                                        .iter()
+                                        .map(|f| crate::types::StructField {
+                                            name: f.name.clone(),
+                                            ty: self.substitute(f.ty, substitutions),
+                                            is_public: f.is_public,
+                                        })
+                                        .collect(),
+                                )
+                            }
+                        };
+                        crate::types::EnumVariant {
+                            name: v.name.clone(),
+                            fields: new_fields,
                         }
-                        crate::types::VariantFields::Struct(fields) => {
-                            crate::types::VariantFields::Struct(
-                                fields.iter().map(|f| crate::types::StructField {
-                                    name: f.name.clone(),
-                                    ty: self.substitute(f.ty, substitutions),
-                                    is_public: f.is_public,
-                                }).collect()
-                            )
-                        }
-                    };
-                    crate::types::EnumVariant {
-                        name: v.name.clone(),
-                        fields: new_fields,
-                    }
-                }).collect();
+                    })
+                    .collect();
                 // Create a new enum type with substituted variants
                 self.intern(Ty::Enum(crate::types::EnumType {
                     name: e.name.clone(),
@@ -360,7 +378,10 @@ impl TypeContext {
             Ty::Array { element, .. } => self.contains_infer(*element),
             Ty::Slice(elem) => self.contains_infer(*elem),
             Ty::Reference { inner, .. } => self.contains_infer(*inner),
-            Ty::Function { params, return_type } => {
+            Ty::Function {
+                params,
+                return_type,
+            } => {
                 params.iter().any(|&p| self.contains_infer(p)) || self.contains_infer(*return_type)
             }
             Ty::Applied { base, args } => {
@@ -412,13 +433,28 @@ impl TypeContext {
             }
             Ty::Struct(s) => s.name.to_string(),
             Ty::Enum(e) => e.name.to_string(),
-            Ty::Function { params, return_type } => {
+            Ty::Function {
+                params,
+                return_type,
+            } => {
                 let params_str: Vec<_> = params.iter().map(|&p| self.display(p)).collect();
-                format!("fn({}) -> {}", params_str.join(", "), self.display(*return_type))
+                format!(
+                    "fn({}) -> {}",
+                    params_str.join(", "),
+                    self.display(*return_type)
+                )
             }
-            Ty::Closure { params, return_type, .. } => {
+            Ty::Closure {
+                params,
+                return_type,
+                ..
+            } => {
                 let params_str: Vec<_> = params.iter().map(|&p| self.display(p)).collect();
-                format!("|{}| -> {}", params_str.join(", "), self.display(*return_type))
+                format!(
+                    "|{}| -> {}",
+                    params_str.join(", "),
+                    self.display(*return_type)
+                )
             }
             Ty::Generic(var) => format!("T{}", var.0),
             Ty::Applied { base, args } => {

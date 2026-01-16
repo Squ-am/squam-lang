@@ -1,6 +1,6 @@
-use squam_vm::{Value, VM};
-use squam_vm::value::StructInstance;
 use serde_json::{self, Value as JsonValue};
+use squam_vm::value::StructInstance;
+use squam_vm::{Value, VM};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -86,16 +86,12 @@ fn squam_to_json(value: &Value) -> JsonValue {
 
 pub fn register(vm: &mut VM) {
     // json_parse(s: string) -> value
-    vm.define_native("json_parse", 1, |args| {
-        match &args[0] {
-            Value::String(s) => {
-                match serde_json::from_str::<JsonValue>(s.as_str()) {
-                    Ok(json) => Ok(json_to_squam(json)),
-                    Err(e) => Err(format!("json_parse failed: {}", e)),
-                }
-            }
-            _ => Err("json_parse: expected string".to_string()),
-        }
+    vm.define_native("json_parse", 1, |args| match &args[0] {
+        Value::String(s) => match serde_json::from_str::<JsonValue>(s.as_str()) {
+            Ok(json) => Ok(json_to_squam(json)),
+            Err(e) => Err(format!("json_parse failed: {}", e)),
+        },
+        _ => Err("json_parse: expected string".to_string()),
     });
 
     // json_stringify(value) -> string
@@ -129,35 +125,32 @@ pub fn register(vm: &mut VM) {
     });
 
     // json_has(obj: struct, key: string) -> bool
-    vm.define_native("json_has", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::Struct(s), Value::String(key)) => {
-                let has = s.field_indices.contains_key(key.as_str())
-                    || s.fields().borrow().contains_key(key.as_str());
-                Ok(Value::Bool(has))
-            }
-            _ => Err("json_has: expected (struct, string)".to_string()),
+    vm.define_native("json_has", 2, |args| match (&args[0], &args[1]) {
+        (Value::Struct(s), Value::String(key)) => {
+            let has = s.field_indices.contains_key(key.as_str())
+                || s.fields().borrow().contains_key(key.as_str());
+            Ok(Value::Bool(has))
         }
+        _ => Err("json_has: expected (struct, string)".to_string()),
     });
 
     // json_keys(obj: struct) -> [string]
-    vm.define_native("json_keys", 1, |args| {
-        match &args[0] {
-            Value::Struct(s) => {
-                let mut keys: Vec<Value> = s.field_indices
-                    .keys()
-                    .filter(|k| !k.starts_with("__"))
-                    .map(|k| Value::String(Rc::new(k.clone())))
-                    .collect();
-                for k in s.fields().borrow().keys() {
-                    if !k.starts_with("__") {
-                        keys.push(Value::String(Rc::new(k.clone())));
-                    }
+    vm.define_native("json_keys", 1, |args| match &args[0] {
+        Value::Struct(s) => {
+            let mut keys: Vec<Value> = s
+                .field_indices
+                .keys()
+                .filter(|k| !k.starts_with("__"))
+                .map(|k| Value::String(Rc::new(k.clone())))
+                .collect();
+            for k in s.fields().borrow().keys() {
+                if !k.starts_with("__") {
+                    keys.push(Value::String(Rc::new(k.clone())));
                 }
-                Ok(Value::Array(Rc::new(RefCell::new(keys))))
             }
-            _ => Err("json_keys: expected struct".to_string()),
+            Ok(Value::Array(Rc::new(RefCell::new(keys))))
         }
+        _ => Err("json_keys: expected struct".to_string()),
     });
 
     // json_values(obj: struct) -> [value]

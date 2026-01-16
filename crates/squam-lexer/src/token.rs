@@ -1,5 +1,5 @@
-use logos::Logos;
 use crate::Span;
+use logos::Logos;
 
 /// All token types in Squam.
 #[derive(Logos, Debug, Clone, Copy, PartialEq, Eq, Hash)]

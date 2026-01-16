@@ -42,9 +42,10 @@ impl TypeId {
 // ---
 
 /// An inline cache for a single call site.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum InlineCache {
     /// Uninitialized cache
+    #[default]
     Empty,
     /// Monomorphic cache (single type seen)
     Mono(CacheEntry),
@@ -52,12 +53,6 @@ pub enum InlineCache {
     Poly(Vec<CacheEntry>),
     /// Megamorphic (too many types, fall back to full lookup)
     Mega,
-}
-
-impl Default for InlineCache {
-    fn default() -> Self {
-        InlineCache::Empty
-    }
 }
 
 impl InlineCache {
@@ -403,18 +398,18 @@ impl InlineCacheManager {
 
         report.push_str("=== Inline Cache Report ===\n\n");
         report.push_str(&format!("Enabled: {}\n", self.enabled));
-        report.push_str(&format!(
-            "Hit Ratio: {:.2}%\n",
-            self.hit_ratio() * 100.0
-        ));
+        report.push_str(&format!("Hit Ratio: {:.2}%\n", self.hit_ratio() * 100.0));
         report.push_str(&format!("Total Lookups: {}\n", stats.lookups));
         report.push_str(&format!("Total Hits: {}\n", stats.hits));
         report.push_str(&format!("Total Misses: {}\n", stats.misses));
-        report.push_str(&format!("\nCache States:\n"));
+        report.push_str("\nCache States:\n");
         report.push_str(&format!("  Monomorphic: {}\n", stats.mono_count));
         report.push_str(&format!("  Polymorphic: {}\n", stats.poly_count));
         report.push_str(&format!("  Megamorphic: {}\n", stats.mega_count));
-        report.push_str(&format!("\nGlobal Variable Caches: {}\n", self.global_caches.len()));
+        report.push_str(&format!(
+            "\nGlobal Variable Caches: {}\n",
+            self.global_caches.len()
+        ));
 
         report
     }

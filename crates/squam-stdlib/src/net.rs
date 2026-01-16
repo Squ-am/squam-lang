@@ -1,8 +1,8 @@
-use squam_vm::{Value, VM};
 use squam_vm::value::StructInstance;
+use squam_vm::{Value, VM};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpStream, TcpListener, ToSocketAddrs, Shutdown};
+use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs};
 use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -48,39 +48,41 @@ impl<T> HandleRegistry<T> {
 
 fn create_handle_struct(handle_type: &str, id: i64) -> Value {
     let instance = StructInstance::new_dynamic(handle_type.to_string());
-    instance.fields().borrow_mut().insert("__type".to_string(), Value::String(Rc::new(handle_type.to_string())));
-    instance.fields().borrow_mut().insert("__handle".to_string(), Value::Int(id));
+    instance.fields().borrow_mut().insert(
+        "__type".to_string(),
+        Value::String(Rc::new(handle_type.to_string())),
+    );
+    instance
+        .fields()
+        .borrow_mut()
+        .insert("__handle".to_string(), Value::Int(id));
     Value::Struct(Rc::new(instance))
 }
 
 fn get_handle_id(value: &Value, expected_type: &str) -> Result<i64, String> {
     match value {
-        Value::Struct(s) => {
-            match s.fields().borrow().get("__handle").cloned() {
-                Some(Value::Int(id)) => Ok(id),
-                _ => Err(format!("Expected {} handle", expected_type)),
-            }
-        }
+        Value::Struct(s) => match s.fields().borrow().get("__handle").cloned() {
+            Some(Value::Int(id)) => Ok(id),
+            _ => Err(format!("Expected {} handle", expected_type)),
+        },
         _ => Err(format!("Expected {} handle", expected_type)),
     }
 }
 
 pub fn register(vm: &mut VM) {
     // tcp_connect(host: string, port: int) -> handle
-    vm.define_native("tcp_connect", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::String(host), Value::Int(port)) => {
-                let addr = format!("{}:{}", host, port);
-                match TcpStream::connect(&addr) {
-                    Ok(stream) => {
-                        let id = STREAM_REGISTRY.lock().unwrap().insert(stream);
-                        Ok(create_handle_struct("TcpStream", id))
-                    }
-                    Err(e) => Err(format!("tcp_connect failed: {}", e)),
+    vm.define_native("tcp_connect", 2, |args| match (&args[0], &args[1]) {
+        (Value::String(host), Value::Int(port)) => {
+            let addr = format!("{}:{}", host, port);
+            match TcpStream::connect(&addr) {
+                Ok(stream) => {
+                    let id = STREAM_REGISTRY.lock().unwrap().insert(stream);
+                    Ok(create_handle_struct("TcpStream", id))
                 }
+                Err(e) => Err(format!("tcp_connect failed: {}", e)),
             }
-            _ => Err("tcp_connect: expected (string, int)".to_string()),
         }
+        _ => Err("tcp_connect: expected (string, int)".to_string()),
     });
 
     // tcp_connect_timeout(host: string, port: int, timeout_ms: int) -> handle
@@ -109,20 +111,18 @@ pub fn register(vm: &mut VM) {
     });
 
     // tcp_listen(host: string, port: int) -> listener
-    vm.define_native("tcp_listen", 2, |args| {
-        match (&args[0], &args[1]) {
-            (Value::String(host), Value::Int(port)) => {
-                let addr = format!("{}:{}", host, port);
-                match TcpListener::bind(&addr) {
-                    Ok(listener) => {
-                        let id = LISTENER_REGISTRY.lock().unwrap().insert(listener);
-                        Ok(create_handle_struct("TcpListener", id))
-                    }
-                    Err(e) => Err(format!("tcp_listen failed: {}", e)),
+    vm.define_native("tcp_listen", 2, |args| match (&args[0], &args[1]) {
+        (Value::String(host), Value::Int(port)) => {
+            let addr = format!("{}:{}", host, port);
+            match TcpListener::bind(&addr) {
+                Ok(listener) => {
+                    let id = LISTENER_REGISTRY.lock().unwrap().insert(listener);
+                    Ok(create_handle_struct("TcpListener", id))
                 }
+                Err(e) => Err(format!("tcp_listen failed: {}", e)),
             }
-            _ => Err("tcp_listen: expected (string, int)".to_string()),
         }
+        _ => Err("tcp_listen: expected (string, int)".to_string()),
     });
 
     // tcp_accept(listener: handle) -> stream handle
@@ -145,30 +145,28 @@ pub fn register(vm: &mut VM) {
     });
 
     // tcp_read(stream: handle, size: int) -> string
-    vm.define_native("tcp_read", 2, |args| {
-        match &args[1] {
-            Value::Int(size) => {
-                let id = get_handle_id(&args[0], "TcpStream")?;
-                let mut registry = STREAM_REGISTRY.lock().unwrap();
-                match registry.get_mut(id) {
-                    Some(stream) => {
-                        let mut buf = vec![0u8; *size as usize];
-                        match stream.read(&mut buf) {
-                            Ok(n) => {
-                                buf.truncate(n);
-                                match String::from_utf8(buf) {
-                                    Ok(s) => Ok(Value::String(Rc::new(s))),
-                                    Err(_) => Err("tcp_read: invalid UTF-8".to_string()),
-                                }
+    vm.define_native("tcp_read", 2, |args| match &args[1] {
+        Value::Int(size) => {
+            let id = get_handle_id(&args[0], "TcpStream")?;
+            let mut registry = STREAM_REGISTRY.lock().unwrap();
+            match registry.get_mut(id) {
+                Some(stream) => {
+                    let mut buf = vec![0u8; *size as usize];
+                    match stream.read(&mut buf) {
+                        Ok(n) => {
+                            buf.truncate(n);
+                            match String::from_utf8(buf) {
+                                Ok(s) => Ok(Value::String(Rc::new(s))),
+                                Err(_) => Err("tcp_read: invalid UTF-8".to_string()),
                             }
-                            Err(e) => Err(format!("tcp_read failed: {}", e)),
                         }
+                        Err(e) => Err(format!("tcp_read failed: {}", e)),
                     }
-                    None => Err("tcp_read: invalid stream handle".to_string()),
                 }
+                None => Err("tcp_read: invalid stream handle".to_string()),
             }
-            _ => Err("tcp_read: expected (handle, int)".to_string()),
         }
+        _ => Err("tcp_read: expected (handle, int)".to_string()),
     });
 
     // tcp_read_line(stream: handle) -> string
@@ -202,44 +200,38 @@ pub fn register(vm: &mut VM) {
     });
 
     // tcp_write(stream: handle, data: string) -> int (bytes written)
-    vm.define_native("tcp_write", 2, |args| {
-        match &args[1] {
-            Value::String(data) => {
-                let id = get_handle_id(&args[0], "TcpStream")?;
-                let mut registry = STREAM_REGISTRY.lock().unwrap();
-                match registry.get_mut(id) {
-                    Some(stream) => {
-                        match stream.write(data.as_bytes()) {
-                            Ok(n) => Ok(Value::Int(n as i64)),
-                            Err(e) => Err(format!("tcp_write failed: {}", e)),
-                        }
-                    }
-                    None => Err("tcp_write: invalid stream handle".to_string()),
-                }
+    vm.define_native("tcp_write", 2, |args| match &args[1] {
+        Value::String(data) => {
+            let id = get_handle_id(&args[0], "TcpStream")?;
+            let mut registry = STREAM_REGISTRY.lock().unwrap();
+            match registry.get_mut(id) {
+                Some(stream) => match stream.write(data.as_bytes()) {
+                    Ok(n) => Ok(Value::Int(n as i64)),
+                    Err(e) => Err(format!("tcp_write failed: {}", e)),
+                },
+                None => Err("tcp_write: invalid stream handle".to_string()),
             }
-            _ => Err("tcp_write: expected (handle, string)".to_string()),
         }
+        _ => Err("tcp_write: expected (handle, string)".to_string()),
     });
 
     // tcp_write_line(stream: handle, data: string) -> int
-    vm.define_native("tcp_write_line", 2, |args| {
-        match &args[1] {
-            Value::String(data) => {
-                let id = get_handle_id(&args[0], "TcpStream")?;
-                let mut registry = STREAM_REGISTRY.lock().unwrap();
-                match registry.get_mut(id) {
-                    Some(stream) => {
-                        let line = format!("{}\n", data);
-                        match stream.write(line.as_bytes()) {
-                            Ok(n) => Ok(Value::Int(n as i64)),
-                            Err(e) => Err(format!("tcp_write_line failed: {}", e)),
-                        }
+    vm.define_native("tcp_write_line", 2, |args| match &args[1] {
+        Value::String(data) => {
+            let id = get_handle_id(&args[0], "TcpStream")?;
+            let mut registry = STREAM_REGISTRY.lock().unwrap();
+            match registry.get_mut(id) {
+                Some(stream) => {
+                    let line = format!("{}\n", data);
+                    match stream.write(line.as_bytes()) {
+                        Ok(n) => Ok(Value::Int(n as i64)),
+                        Err(e) => Err(format!("tcp_write_line failed: {}", e)),
                     }
-                    None => Err("tcp_write_line: invalid stream handle".to_string()),
                 }
+                None => Err("tcp_write_line: invalid stream handle".to_string()),
             }
-            _ => Err("tcp_write_line: expected (handle, string)".to_string()),
         }
+        _ => Err("tcp_write_line: expected (handle, string)".to_string()),
     });
 
     // tcp_flush(stream: handle) -> ()
@@ -247,12 +239,10 @@ pub fn register(vm: &mut VM) {
         let id = get_handle_id(&args[0], "TcpStream")?;
         let mut registry = STREAM_REGISTRY.lock().unwrap();
         match registry.get_mut(id) {
-            Some(stream) => {
-                match stream.flush() {
-                    Ok(_) => Ok(Value::Unit),
-                    Err(e) => Err(format!("tcp_flush failed: {}", e)),
-                }
-            }
+            Some(stream) => match stream.flush() {
+                Ok(_) => Ok(Value::Unit),
+                Err(e) => Err(format!("tcp_flush failed: {}", e)),
+            },
             None => Err("tcp_flush: invalid stream handle".to_string()),
         }
     });
@@ -281,32 +271,30 @@ pub fn register(vm: &mut VM) {
     });
 
     // tcp_set_timeout(stream: handle, read_ms: int, write_ms: int) -> ()
-    vm.define_native("tcp_set_timeout", 3, |args| {
-        match (&args[1], &args[2]) {
-            (Value::Int(read_ms), Value::Int(write_ms)) => {
-                let id = get_handle_id(&args[0], "TcpStream")?;
-                let registry = STREAM_REGISTRY.lock().unwrap();
-                match registry.get(id) {
-                    Some(stream) => {
-                        let read_timeout = if *read_ms > 0 {
-                            Some(Duration::from_millis(*read_ms as u64))
-                        } else {
-                            None
-                        };
-                        let write_timeout = if *write_ms > 0 {
-                            Some(Duration::from_millis(*write_ms as u64))
-                        } else {
-                            None
-                        };
-                        stream.set_read_timeout(read_timeout).ok();
-                        stream.set_write_timeout(write_timeout).ok();
-                        Ok(Value::Unit)
-                    }
-                    None => Err("tcp_set_timeout: invalid stream handle".to_string()),
+    vm.define_native("tcp_set_timeout", 3, |args| match (&args[1], &args[2]) {
+        (Value::Int(read_ms), Value::Int(write_ms)) => {
+            let id = get_handle_id(&args[0], "TcpStream")?;
+            let registry = STREAM_REGISTRY.lock().unwrap();
+            match registry.get(id) {
+                Some(stream) => {
+                    let read_timeout = if *read_ms > 0 {
+                        Some(Duration::from_millis(*read_ms as u64))
+                    } else {
+                        None
+                    };
+                    let write_timeout = if *write_ms > 0 {
+                        Some(Duration::from_millis(*write_ms as u64))
+                    } else {
+                        None
+                    };
+                    stream.set_read_timeout(read_timeout).ok();
+                    stream.set_write_timeout(write_timeout).ok();
+                    Ok(Value::Unit)
                 }
+                None => Err("tcp_set_timeout: invalid stream handle".to_string()),
             }
-            _ => Err("tcp_set_timeout: expected (handle, int, int)".to_string()),
         }
+        _ => Err("tcp_set_timeout: expected (handle, int, int)".to_string()),
     });
 
     // tcp_peer_addr(stream: handle) -> string
@@ -314,12 +302,10 @@ pub fn register(vm: &mut VM) {
         let id = get_handle_id(&args[0], "TcpStream")?;
         let registry = STREAM_REGISTRY.lock().unwrap();
         match registry.get(id) {
-            Some(stream) => {
-                match stream.peer_addr() {
-                    Ok(addr) => Ok(Value::String(Rc::new(addr.to_string()))),
-                    Err(e) => Err(format!("tcp_peer_addr failed: {}", e)),
-                }
-            }
+            Some(stream) => match stream.peer_addr() {
+                Ok(addr) => Ok(Value::String(Rc::new(addr.to_string()))),
+                Err(e) => Err(format!("tcp_peer_addr failed: {}", e)),
+            },
             None => Err("tcp_peer_addr: invalid stream handle".to_string()),
         }
     });
@@ -329,12 +315,10 @@ pub fn register(vm: &mut VM) {
         let id = get_handle_id(&args[0], "TcpStream")?;
         let registry = STREAM_REGISTRY.lock().unwrap();
         match registry.get(id) {
-            Some(stream) => {
-                match stream.local_addr() {
-                    Ok(addr) => Ok(Value::String(Rc::new(addr.to_string()))),
-                    Err(e) => Err(format!("tcp_local_addr failed: {}", e)),
-                }
-            }
+            Some(stream) => match stream.local_addr() {
+                Ok(addr) => Ok(Value::String(Rc::new(addr.to_string()))),
+                Err(e) => Err(format!("tcp_local_addr failed: {}", e)),
+            },
             None => Err("tcp_local_addr: invalid stream handle".to_string()),
         }
     });

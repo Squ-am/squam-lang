@@ -3,9 +3,13 @@ use squam_lexer::Span;
 use squam_parser::ast::*;
 
 use crate::context::TypeContext;
-use crate::scope::{SymbolTable, TypeNamespace, FunctionNamespace, TraitNamespace, Binding, BindingKind, ScopeKind, FunctionSig, TypeDef, TypeDefKind, GenericParamInfo, TraitDef as ScopeTraitDef, TraitMethodSig, AssociatedTypeDef, ImplDef, ImplMethodSig};
-use crate::types::{TypeId, Ty, InferVar, GenericVar, VariantFields};
-use crate::{TypeAnnotations, InstantiationKind};
+use crate::scope::{
+    AssociatedTypeDef, Binding, BindingKind, FunctionNamespace, FunctionSig, GenericParamInfo,
+    ImplDef, ImplMethodSig, ScopeKind, SymbolTable, TraitDef as ScopeTraitDef, TraitMethodSig,
+    TraitNamespace, TypeDef, TypeDefKind, TypeNamespace,
+};
+use crate::types::{GenericVar, InferVar, Ty, TypeId, VariantFields};
+use crate::{InstantiationKind, TypeAnnotations};
 
 /// Type checking errors.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -43,7 +47,11 @@ pub enum TypeError {
     NotIndexable { ty: String, span: Span },
 
     #[error("no field `{field}` on type `{ty}`")]
-    NoSuchField { ty: String, field: String, span: Span },
+    NoSuchField {
+        ty: String,
+        field: String,
+        span: Span,
+    },
 
     #[error("break outside of loop")]
     BreakOutsideLoop { span: Span },
@@ -252,14 +260,46 @@ impl TypeChecker {
         self.register_extern_function("str_to_upper", vec![TypeId::STRING], TypeId::STRING);
         self.register_extern_function("str_to_lower", vec![TypeId::STRING], TypeId::STRING);
         self.register_extern_function("str_trim", vec![TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("str_split", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
-        self.register_extern_function("str_join", vec![TypeId::ANY, TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("str_contains", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
-        self.register_extern_function("str_starts_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
-        self.register_extern_function("str_ends_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
-        self.register_extern_function("str_replace", vec![TypeId::STRING, TypeId::STRING, TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("str_substring", vec![TypeId::STRING, TypeId::I64, TypeId::I64], TypeId::STRING);
-        self.register_extern_function("str_char_at", vec![TypeId::STRING, TypeId::I64], TypeId::STRING);
+        self.register_extern_function(
+            "str_split",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::ANY,
+        );
+        self.register_extern_function(
+            "str_join",
+            vec![TypeId::ANY, TypeId::STRING],
+            TypeId::STRING,
+        );
+        self.register_extern_function(
+            "str_contains",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::BOOL,
+        );
+        self.register_extern_function(
+            "str_starts_with",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::BOOL,
+        );
+        self.register_extern_function(
+            "str_ends_with",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::BOOL,
+        );
+        self.register_extern_function(
+            "str_replace",
+            vec![TypeId::STRING, TypeId::STRING, TypeId::STRING],
+            TypeId::STRING,
+        );
+        self.register_extern_function(
+            "str_substring",
+            vec![TypeId::STRING, TypeId::I64, TypeId::I64],
+            TypeId::STRING,
+        );
+        self.register_extern_function(
+            "str_char_at",
+            vec![TypeId::STRING, TypeId::I64],
+            TypeId::STRING,
+        );
         self.register_extern_function("parse_int", vec![TypeId::STRING], TypeId::ANY);
         self.register_extern_function("parse_float", vec![TypeId::STRING], TypeId::ANY);
 
@@ -267,7 +307,11 @@ impl TypeChecker {
         self.register_extern_function("abs", vec![TypeId::ANY], TypeId::ANY);
         self.register_extern_function("min", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
         self.register_extern_function("max", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
-        self.register_extern_function("clamp", vec![TypeId::ANY, TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function(
+            "clamp",
+            vec![TypeId::ANY, TypeId::ANY, TypeId::ANY],
+            TypeId::ANY,
+        );
         self.register_extern_function("sqrt", vec![TypeId::F64], TypeId::F64);
         self.register_extern_function("pow", vec![TypeId::F64, TypeId::F64], TypeId::F64);
         self.register_extern_function("floor", vec![TypeId::F64], TypeId::I64);
@@ -291,7 +335,11 @@ impl TypeChecker {
         self.register_extern_function("read_line", vec![], TypeId::STRING);
         self.register_extern_function("input", vec![TypeId::STRING], TypeId::STRING);
         self.register_extern_function("read_file", vec![TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("write_file", vec![TypeId::STRING, TypeId::STRING], TypeId::UNIT);
+        self.register_extern_function(
+            "write_file",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::UNIT,
+        );
         self.register_extern_function("file_exists", vec![TypeId::STRING], TypeId::BOOL);
 
         // Control flow
@@ -302,7 +350,11 @@ impl TypeChecker {
         // Iterator operations (higher-order functions that take closures)
         self.register_extern_function("map", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
         self.register_extern_function("filter", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
-        self.register_extern_function("reduce", vec![TypeId::ANY, TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function(
+            "reduce",
+            vec![TypeId::ANY, TypeId::ANY, TypeId::ANY],
+            TypeId::ANY,
+        );
         self.register_extern_function("foreach", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
         self.register_extern_function("find", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
         self.register_extern_function("find_index", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
@@ -334,27 +386,55 @@ impl TypeChecker {
         self.register_extern_function("windows", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
 
         // TCP networking
-        self.register_extern_function("tcp_connect", vec![TypeId::STRING, TypeId::I64], TypeId::ANY);
-        self.register_extern_function("tcp_connect_timeout", vec![TypeId::STRING, TypeId::I64, TypeId::I64], TypeId::ANY);
+        self.register_extern_function(
+            "tcp_connect",
+            vec![TypeId::STRING, TypeId::I64],
+            TypeId::ANY,
+        );
+        self.register_extern_function(
+            "tcp_connect_timeout",
+            vec![TypeId::STRING, TypeId::I64, TypeId::I64],
+            TypeId::ANY,
+        );
         self.register_extern_function("tcp_listen", vec![TypeId::STRING, TypeId::I64], TypeId::ANY);
         self.register_extern_function("tcp_accept", vec![TypeId::ANY], TypeId::ANY);
         self.register_extern_function("tcp_read", vec![TypeId::ANY, TypeId::I64], TypeId::STRING);
         self.register_extern_function("tcp_read_line", vec![TypeId::ANY], TypeId::STRING);
         self.register_extern_function("tcp_write", vec![TypeId::ANY, TypeId::STRING], TypeId::I64);
-        self.register_extern_function("tcp_write_line", vec![TypeId::ANY, TypeId::STRING], TypeId::I64);
+        self.register_extern_function(
+            "tcp_write_line",
+            vec![TypeId::ANY, TypeId::STRING],
+            TypeId::I64,
+        );
         self.register_extern_function("tcp_flush", vec![TypeId::ANY], TypeId::UNIT);
         self.register_extern_function("tcp_close", vec![TypeId::ANY], TypeId::UNIT);
         self.register_extern_function("tcp_close_listener", vec![TypeId::ANY], TypeId::UNIT);
-        self.register_extern_function("tcp_set_timeout", vec![TypeId::ANY, TypeId::I64, TypeId::I64], TypeId::UNIT);
+        self.register_extern_function(
+            "tcp_set_timeout",
+            vec![TypeId::ANY, TypeId::I64, TypeId::I64],
+            TypeId::UNIT,
+        );
         self.register_extern_function("tcp_peer_addr", vec![TypeId::ANY], TypeId::STRING);
         self.register_extern_function("tcp_local_addr", vec![TypeId::ANY], TypeId::STRING);
 
         // HTTP client
         self.register_extern_function("http_get", vec![TypeId::STRING], TypeId::ANY);
         self.register_extern_function("http_get_text", vec![TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("http_post", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
-        self.register_extern_function("http_post_json", vec![TypeId::STRING, TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("http_put", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
+        self.register_extern_function(
+            "http_post",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::ANY,
+        );
+        self.register_extern_function(
+            "http_post_json",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::STRING,
+        );
+        self.register_extern_function(
+            "http_put",
+            vec![TypeId::STRING, TypeId::STRING],
+            TypeId::ANY,
+        );
         self.register_extern_function("http_delete", vec![TypeId::STRING], TypeId::ANY);
 
         // JSON
@@ -367,7 +447,11 @@ impl TypeChecker {
         self.register_extern_function("time_now_ns", vec![], TypeId::I64);
         self.register_extern_function("sleep", vec![TypeId::I64], TypeId::UNIT);
         self.register_extern_function("sleep_secs", vec![TypeId::F64], TypeId::UNIT);
-        self.register_extern_function("format_timestamp", vec![TypeId::I64, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function(
+            "format_timestamp",
+            vec![TypeId::I64, TypeId::STRING],
+            TypeId::STRING,
+        );
         self.register_extern_function("timer_start", vec![], TypeId::I64);
         self.register_extern_function("timer_elapsed_ms", vec![TypeId::I64], TypeId::I64);
 
@@ -475,7 +559,12 @@ impl TypeChecker {
 
     /// Register an extern/native function with its type signature.
     /// This is used to inform the type checker about stdlib functions.
-    pub fn register_extern_function(&mut self, name: &str, params: Vec<TypeId>, return_type: TypeId) {
+    pub fn register_extern_function(
+        &mut self,
+        name: &str,
+        params: Vec<TypeId>,
+        return_type: TypeId,
+    ) {
         let _ = self.functions.define(FunctionSig {
             name: name.into(),
             params,
@@ -541,11 +630,16 @@ impl TypeChecker {
                 true
             }
 
-            (Ty::Array { element: ea, size: sa }, Ty::Array { element: eb, size: sb })
-                if sa == sb =>
-            {
-                self.unify(*ea, *eb, span)
-            }
+            (
+                Ty::Array {
+                    element: ea,
+                    size: sa,
+                },
+                Ty::Array {
+                    element: eb,
+                    size: sb,
+                },
+            ) if sa == sb => self.unify(*ea, *eb, span),
 
             // Allow [T; N] to coerce to [T] (slice)
             (Ty::Array { element: ea, .. }, Ty::Slice(eb))
@@ -554,13 +648,25 @@ impl TypeChecker {
             (Ty::Slice(ea), Ty::Slice(eb)) => self.unify(*ea, *eb, span),
 
             (
-                Ty::Reference { mutable: ma, inner: ia },
-                Ty::Reference { mutable: mb, inner: ib },
+                Ty::Reference {
+                    mutable: ma,
+                    inner: ia,
+                },
+                Ty::Reference {
+                    mutable: mb,
+                    inner: ib,
+                },
             ) if ma == mb => self.unify(*ia, *ib, span),
 
             (
-                Ty::Function { params: pa, return_type: ra },
-                Ty::Function { params: pb, return_type: rb },
+                Ty::Function {
+                    params: pa,
+                    return_type: ra,
+                },
+                Ty::Function {
+                    params: pb,
+                    return_type: rb,
+                },
             ) if pa.len() == pb.len() => {
                 for (&p1, &p2) in pa.iter().zip(pb.iter()) {
                     if !self.unify(p1, p2, span) {
@@ -570,10 +676,9 @@ impl TypeChecker {
                 self.unify(*ra, *rb, span)
             }
 
-            (
-                Ty::Applied { base: ba, args: aa },
-                Ty::Applied { base: bb, args: ab },
-            ) if aa.len() == ab.len() => {
+            (Ty::Applied { base: ba, args: aa }, Ty::Applied { base: bb, args: ab })
+                if aa.len() == ab.len() =>
+            {
                 if !self.unify(*ba, *bb, span) {
                     return false;
                 }
@@ -586,25 +691,29 @@ impl TypeChecker {
             }
 
             // Enum unification - match by name and unify variant field types
-            (Ty::Enum(ea), Ty::Enum(eb)) if ea.name == eb.name && ea.variants.len() == eb.variants.len() => {
+            (Ty::Enum(ea), Ty::Enum(eb))
+                if ea.name == eb.name && ea.variants.len() == eb.variants.len() =>
+            {
                 for (va, vb) in ea.variants.iter().zip(eb.variants.iter()) {
                     if va.name != vb.name {
                         return false;
                     }
                     match (&va.fields, &vb.fields) {
                         (crate::types::VariantFields::Unit, crate::types::VariantFields::Unit) => {}
-                        (crate::types::VariantFields::Tuple(fa), crate::types::VariantFields::Tuple(fb))
-                            if fa.len() == fb.len() =>
-                        {
+                        (
+                            crate::types::VariantFields::Tuple(fa),
+                            crate::types::VariantFields::Tuple(fb),
+                        ) if fa.len() == fb.len() => {
                             for (&f1, &f2) in fa.iter().zip(fb.iter()) {
                                 if !self.unify(f1, f2, span) {
                                     return false;
                                 }
                             }
                         }
-                        (crate::types::VariantFields::Struct(fa), crate::types::VariantFields::Struct(fb))
-                            if fa.len() == fb.len() =>
-                        {
+                        (
+                            crate::types::VariantFields::Struct(fa),
+                            crate::types::VariantFields::Struct(fb),
+                        ) if fa.len() == fb.len() => {
                             for (f1, f2) in fa.iter().zip(fb.iter()) {
                                 if f1.name != f2.name || !self.unify(f1.ty, f2.ty, span) {
                                     return false;
@@ -618,7 +727,9 @@ impl TypeChecker {
             }
 
             // Struct unification - match by name and unify field types
-            (Ty::Struct(sa), Ty::Struct(sb)) if sa.name == sb.name && sa.fields.len() == sb.fields.len() => {
+            (Ty::Struct(sa), Ty::Struct(sb))
+                if sa.name == sb.name && sa.fields.len() == sb.fields.len() =>
+            {
                 for (fa, fb) in sa.fields.iter().zip(sb.fields.iter()) {
                     if fa.name != fb.name || !self.unify(fa.ty, fb.ty, span) {
                         return false;
@@ -663,9 +774,10 @@ impl TypeChecker {
             Ty::Array { element, .. } => self.occurs(var, *element),
             Ty::Slice(elem) => self.occurs(var, *elem),
             Ty::Reference { inner, .. } => self.occurs(var, *inner),
-            Ty::Function { params, return_type } => {
-                params.iter().any(|&p| self.occurs(var, p)) || self.occurs(var, *return_type)
-            }
+            Ty::Function {
+                params,
+                return_type,
+            } => params.iter().any(|&p| self.occurs(var, p)) || self.occurs(var, *return_type),
             Ty::Applied { base, args } => {
                 self.occurs(var, *base) || args.iter().any(|&a| self.occurs(var, a))
             }
@@ -715,7 +827,10 @@ impl TypeChecker {
                 let resolved = self.fully_resolve(inner);
                 self.ctx.reference(resolved, mutable)
             }
-            Ty::Function { params, return_type } => {
+            Ty::Function {
+                params,
+                return_type,
+            } => {
                 let params: Vec<_> = params.iter().map(|&p| self.fully_resolve(p)).collect();
                 let ret = self.fully_resolve(return_type);
                 self.ctx.function(params, ret)
@@ -813,9 +928,12 @@ impl TypeChecker {
             Ty::Struct(s) => s.name.to_string(),
             Ty::Enum(e) => e.name.to_string(),
             // Compound types
-            Ty::Array { element, .. } => format!("[{}]", self.type_name_for_monomorphization(*element)),
+            Ty::Array { element, .. } => {
+                format!("[{}]", self.type_name_for_monomorphization(*element))
+            }
             Ty::Tuple(elems) => {
-                let names: Vec<_> = elems.iter()
+                let names: Vec<_> = elems
+                    .iter()
                     .map(|&e| self.type_name_for_monomorphization(e))
                     .collect();
                 format!("({})", names.join(","))
@@ -839,7 +957,8 @@ impl TypeChecker {
                     let ty = self.ctx.generic(var);
 
                     // Resolve trait bounds (if any)
-                    let bounds: Vec<TypeId> = type_param.bounds
+                    let bounds: Vec<TypeId> = type_param
+                        .bounds
                         .iter()
                         .map(|bound| self.resolve_type_path(bound))
                         .collect();
@@ -904,7 +1023,7 @@ impl TypeChecker {
         }
 
         // If the type is a generic variable, bounds will be checked when it's instantiated
-        if let Some(_) = self.ctx.as_generic_var(resolved) {
+        if self.ctx.as_generic_var(resolved).is_some() {
             return true;
         }
 
@@ -927,7 +1046,8 @@ impl TypeChecker {
             for &bound in &param.bounds {
                 if !self.check_trait_bound(arg_ty, bound, span) {
                     // Get the trait name for the error message
-                    let trait_name = self.get_trait_name(bound)
+                    let trait_name = self
+                        .get_trait_name(bound)
                         .unwrap_or_else(|| "?".to_string());
                     self.error(TypeError::TraitBoundNotSatisfied {
                         ty: self.ctx.display(arg_ty),
@@ -958,8 +1078,14 @@ impl TypeChecker {
                     });
                 }
 
-                let params: Vec<_> = func.params.iter().map(|p| self.resolve_ast_type(&p.ty)).collect();
-                let return_type = func.return_type.as_ref()
+                let params: Vec<_> = func
+                    .params
+                    .iter()
+                    .map(|p| self.resolve_ast_type(&p.ty))
+                    .collect();
+                let return_type = func
+                    .return_type
+                    .as_ref()
                     .map(|t| self.resolve_ast_type(t))
                     .unwrap_or(self.ctx.unit());
 
@@ -992,32 +1118,36 @@ impl TypeChecker {
 
                 // Collect struct fields
                 let fields = match &s.fields {
-                    StructFields::Named(named_fields) => {
-                        named_fields.iter().map(|f| crate::types::StructField {
+                    StructFields::Named(named_fields) => named_fields
+                        .iter()
+                        .map(|f| crate::types::StructField {
                             name: f.name.name.clone(),
                             ty: self.resolve_ast_type(&f.ty),
                             is_public: matches!(f.visibility, Visibility::Public),
-                        }).collect()
-                    }
-                    StructFields::Tuple(tuple_fields) => {
-                        tuple_fields.iter().enumerate().map(|(i, f)| crate::types::StructField {
+                        })
+                        .collect(),
+                    StructFields::Tuple(tuple_fields) => tuple_fields
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| crate::types::StructField {
                             name: format!("{}", i).into(),
                             ty: self.resolve_ast_type(&f.ty),
                             is_public: matches!(f.visibility, Visibility::Public),
-                        }).collect()
-                    }
+                        })
+                        .collect(),
                     StructFields::Unit => Vec::new(),
                 };
 
                 self.types.pop_scope();
 
-                let type_generic_params: Vec<_> = generic_params.iter().map(|gp| {
-                    crate::types::GenericParam {
+                let type_generic_params: Vec<_> = generic_params
+                    .iter()
+                    .map(|gp| crate::types::GenericParam {
                         name: gp.name.clone(),
                         var: gp.var,
                         bounds: gp.bounds.clone(),
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 let ty = self.ctx.intern(Ty::Struct(crate::types::StructType {
                     name: s.name.name.clone(),
@@ -1048,41 +1178,48 @@ impl TypeChecker {
                 }
 
                 // Collect enum variants
-                let variants: Vec<_> = e.variants.iter().map(|v| {
-                    let fields = match &v.fields {
-                        StructFields::Unit => crate::types::VariantFields::Unit,
-                        StructFields::Tuple(tuple_fields) => {
-                            let tys: Vec<_> = tuple_fields.iter()
-                                .map(|f| self.resolve_ast_type(&f.ty))
-                                .collect();
-                            crate::types::VariantFields::Tuple(tys)
+                let variants: Vec<_> = e
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let fields = match &v.fields {
+                            StructFields::Unit => crate::types::VariantFields::Unit,
+                            StructFields::Tuple(tuple_fields) => {
+                                let tys: Vec<_> = tuple_fields
+                                    .iter()
+                                    .map(|f| self.resolve_ast_type(&f.ty))
+                                    .collect();
+                                crate::types::VariantFields::Tuple(tys)
+                            }
+                            StructFields::Named(named_fields) => {
+                                let fields: Vec<_> = named_fields
+                                    .iter()
+                                    .map(|f| crate::types::StructField {
+                                        name: f.name.name.clone(),
+                                        ty: self.resolve_ast_type(&f.ty),
+                                        is_public: matches!(f.visibility, Visibility::Public),
+                                    })
+                                    .collect();
+                                crate::types::VariantFields::Struct(fields)
+                            }
+                        };
+                        crate::types::EnumVariant {
+                            name: v.name.name.clone(),
+                            fields,
                         }
-                        StructFields::Named(named_fields) => {
-                            let fields: Vec<_> = named_fields.iter()
-                                .map(|f| crate::types::StructField {
-                                    name: f.name.name.clone(),
-                                    ty: self.resolve_ast_type(&f.ty),
-                                    is_public: matches!(f.visibility, Visibility::Public),
-                                })
-                                .collect();
-                            crate::types::VariantFields::Struct(fields)
-                        }
-                    };
-                    crate::types::EnumVariant {
-                        name: v.name.name.clone(),
-                        fields,
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 self.types.pop_scope();
 
-                let type_generic_params: Vec<_> = generic_params.iter().map(|gp| {
-                    crate::types::GenericParam {
+                let type_generic_params: Vec<_> = generic_params
+                    .iter()
+                    .map(|gp| crate::types::GenericParam {
                         name: gp.name.clone(),
                         var: gp.var,
                         bounds: gp.bounds.clone(),
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 let ty = self.ctx.intern(Ty::Enum(crate::types::EnumType {
                     name: e.name.name.clone(),
@@ -1136,14 +1273,20 @@ impl TypeChecker {
         }
 
         // Collect methods
-        let methods: Vec<TraitMethodSig> = t.items.iter().filter_map(|item| {
-            match item {
+        let methods: Vec<TraitMethodSig> = t
+            .items
+            .iter()
+            .filter_map(|item| match item {
                 TraitItem::Function(f) => {
                     let method_generics = self.collect_generics(f.generics.as_ref());
-                    let params: Vec<TypeId> = f.params.iter()
+                    let params: Vec<TypeId> = f
+                        .params
+                        .iter()
                         .map(|p| self.resolve_ast_type(&p.ty))
                         .collect();
-                    let return_type = f.return_type.as_ref()
+                    let return_type = f
+                        .return_type
+                        .as_ref()
                         .map(|t| self.resolve_ast_type(t))
                         .unwrap_or(self.ctx.unit());
 
@@ -1157,18 +1300,21 @@ impl TypeChecker {
                     })
                 }
                 _ => None,
-            }
-        }).collect();
+            })
+            .collect();
 
         // Collect associated types
-        let associated_types: Vec<AssociatedTypeDef> = t.items.iter().filter_map(|item| {
-            match item {
+        let associated_types: Vec<AssociatedTypeDef> = t
+            .items
+            .iter()
+            .filter_map(|item| match item {
                 TraitItem::Type(ty) => {
-                    let bounds: Vec<TypeId> = ty.bounds.iter()
+                    let bounds: Vec<TypeId> = ty
+                        .bounds
+                        .iter()
                         .map(|b| self.resolve_type_path(b))
                         .collect();
-                    let default = ty.default.as_ref()
-                        .map(|d| self.resolve_ast_type(d));
+                    let default = ty.default.as_ref().map(|d| self.resolve_ast_type(d));
 
                     Some(AssociatedTypeDef {
                         name: ty.name.name.clone(),
@@ -1178,13 +1324,15 @@ impl TypeChecker {
                     })
                 }
                 _ => None,
-            }
-        }).collect();
+            })
+            .collect();
 
         self.types.pop_scope();
 
         // Collect supertraits
-        let supertraits: Vec<_> = t.bounds.iter()
+        let supertraits: Vec<_> = t
+            .bounds
+            .iter()
             .filter_map(|b| {
                 if b.segments.len() == 1 {
                     Some(b.segments[0].ident.name.clone())
@@ -1243,42 +1391,52 @@ impl TypeChecker {
         });
 
         // Collect method signatures
-        let methods: Vec<ImplMethodSig> = i.items.iter().filter_map(|item| {
-            match item {
-                ImplItem::Function(f) => {
-                    let method_generics = self.collect_generics(f.generics.as_ref());
+        let methods: Vec<ImplMethodSig> = i
+            .items
+            .iter()
+            .filter_map(|item| {
+                match item {
+                    ImplItem::Function(f) => {
+                        let method_generics = self.collect_generics(f.generics.as_ref());
 
-                    // Check if the first parameter is `self`
-                    let has_receiver = f.params.first().map_or(false, |p| {
-                        Self::is_self_param_static(p)
-                    });
+                        // Check if the first parameter is `self`
+                        let has_receiver = f
+                            .params
+                            .first()
+                            .is_some_and(|p| Self::is_self_param_static(p));
 
-                    // Collect non-self parameters first
-                    let non_self_params: Vec<_> = f.params.iter()
-                        .filter(|p| !Self::is_self_param_static(p))
-                        .collect();
+                        // Collect non-self parameters first
+                        let non_self_params: Vec<_> = f
+                            .params
+                            .iter()
+                            .filter(|p| !Self::is_self_param_static(p))
+                            .collect();
 
-                    // Resolve parameter types
-                    let params: Vec<TypeId> = non_self_params.iter()
-                        .map(|p| self.resolve_ast_type(&p.ty))
-                        .collect();
+                        // Resolve parameter types
+                        let params: Vec<TypeId> = non_self_params
+                            .iter()
+                            .map(|p| self.resolve_ast_type(&p.ty))
+                            .collect();
 
-                    let return_type = f.return_type.as_ref()
-                        .map(|t| self.resolve_ast_type(t))
-                        .unwrap_or(self.ctx.unit());
+                        let return_type = f
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_ast_type(t))
+                            .unwrap_or(self.ctx.unit());
 
-                    Some(ImplMethodSig {
-                        name: f.name.name.clone(),
-                        params,
-                        return_type,
-                        generic_params: method_generics,
-                        has_receiver,
-                        span: f.span,
-                    })
+                        Some(ImplMethodSig {
+                            name: f.name.name.clone(),
+                            params,
+                            return_type,
+                            generic_params: method_generics,
+                            has_receiver,
+                            span: f.span,
+                        })
+                    }
+                    _ => None,
                 }
-                _ => None,
-            }
-        }).collect();
+            })
+            .collect();
 
         self.types.pop_scope();
 
@@ -1297,9 +1455,7 @@ impl TypeChecker {
     fn is_self_param_static(param: &Parameter) -> bool {
         // Check if the pattern is just `self` or the type is `Self`
         match &param.pattern.kind {
-            PatternKind::Binding { name, .. } => {
-                name.name.as_ref() == "self"
-            }
+            PatternKind::Binding { name, .. } => name.name.as_ref() == "self",
             _ => false,
         }
     }
@@ -1309,7 +1465,11 @@ impl TypeChecker {
     fn resolve_method(&self, ty: TypeId, method_name: &str) -> Option<(Vec<TypeId>, TypeId, bool)> {
         // First, try direct lookup by type
         if let Some((method, _)) = self.traits.lookup_method(ty, method_name) {
-            return Some((method.params.clone(), method.return_type, method.has_receiver));
+            return Some((
+                method.params.clone(),
+                method.return_type,
+                method.has_receiver,
+            ));
         }
 
         // If the type is a struct or enum, try to find it by name
@@ -1331,7 +1491,11 @@ impl TypeChecker {
                 if impl_type_name.as_ref() == Some(&name) {
                     for method in &impl_def.methods {
                         if method.name.as_ref() == method_name {
-                            return Some((method.params.clone(), method.return_type, method.has_receiver));
+                            return Some((
+                                method.params.clone(),
+                                method.return_type,
+                                method.has_receiver,
+                            ));
                         }
                     }
                 }
@@ -1392,7 +1556,9 @@ impl TypeChecker {
                         self.bind_pattern(&param.pattern, ty, BindingKind::Parameter);
                     }
 
-                    let return_type = f.return_type.as_ref()
+                    let return_type = f
+                        .return_type
+                        .as_ref()
                         .map(|t| self.resolve_ast_type(t))
                         .unwrap_or(self.ctx.unit());
                     self.current_return_type = Some(return_type);
@@ -1446,12 +1612,14 @@ impl TypeChecker {
 
                 if let Some(trait_def) = trait_def {
                     // Check that all required methods are implemented
-                    let impl_methods: Vec<_> = i.items.iter().filter_map(|item| {
-                        match item {
+                    let impl_methods: Vec<_> = i
+                        .items
+                        .iter()
+                        .filter_map(|item| match item {
                             ImplItem::Function(f) => Some(f.name.name.as_ref()),
                             _ => None,
-                        }
-                    }).collect();
+                        })
+                        .collect();
 
                     for method in &trait_def.methods {
                         if !method.has_default && !impl_methods.contains(&method.name.as_ref()) {
@@ -1499,7 +1667,9 @@ impl TypeChecker {
                         self.bind_pattern(&param.pattern, ty, BindingKind::Parameter);
                     }
 
-                    let return_type = f.return_type.as_ref()
+                    let return_type = f
+                        .return_type
+                        .as_ref()
                         .map(|t| self.resolve_ast_type(t))
                         .unwrap_or(self.ctx.unit());
                     self.current_return_type = Some(return_type);
@@ -1550,7 +1720,9 @@ impl TypeChecker {
         }
 
         // Set return type for checking returns
-        let return_type = func.return_type.as_ref()
+        let return_type = func
+            .return_type
+            .as_ref()
             .map(|t| self.resolve_ast_type(t))
             .unwrap_or(self.ctx.unit());
         self.current_return_type = Some(return_type);
@@ -1588,7 +1760,8 @@ impl TypeChecker {
 
             match &stmt.kind {
                 StmtKind::Let { pattern, ty, init } => {
-                    let ty = ty.as_ref()
+                    let ty = ty
+                        .as_ref()
                         .map(|t| self.resolve_ast_type(t))
                         .unwrap_or_else(|| self.ctx.fresh_infer());
 
@@ -1662,11 +1835,20 @@ impl TypeChecker {
                 let right_ty = self.check_expr(right);
 
                 match op {
-                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                    BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem => {
                         self.unify(left_ty, right_ty, expr.span);
                         left_ty
                     }
-                    BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                    BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Le
+                    | BinaryOp::Gt
+                    | BinaryOp::Ge => {
                         self.unify(left_ty, right_ty, expr.span);
                         self.ctx.bool()
                     }
@@ -1675,7 +1857,11 @@ impl TypeChecker {
                         self.unify(right_ty, self.ctx.bool(), right.span);
                         self.ctx.bool()
                     }
-                    BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
+                    BinaryOp::BitAnd
+                    | BinaryOp::BitOr
+                    | BinaryOp::BitXor
+                    | BinaryOp::Shl
+                    | BinaryOp::Shr => {
                         self.unify(left_ty, right_ty, expr.span);
                         left_ty
                     }
@@ -1704,7 +1890,11 @@ impl TypeChecker {
                 self.ctx.unit()
             }
 
-            ExprKind::AssignOp { op: _, target, value } => {
+            ExprKind::AssignOp {
+                op: _,
+                target,
+                value,
+            } => {
                 let target_ty = self.check_expr(target);
                 let value_ty = self.check_expr(value);
                 self.unify(value_ty, target_ty, value.span);
@@ -1716,7 +1906,10 @@ impl TypeChecker {
                 let resolved = self.resolve(callee_ty);
 
                 match self.ctx.get(resolved).clone() {
-                    Ty::Function { params, return_type } => {
+                    Ty::Function {
+                        params,
+                        return_type,
+                    } => {
                         if args.len() != params.len() {
                             self.error(TypeError::ArgCountMismatch {
                                 expected: params.len(),
@@ -1734,7 +1927,8 @@ impl TypeChecker {
                     }
                     Ty::Infer(_) => {
                         // Create function type from args
-                        let arg_tys: Vec<_> = args.iter().map(|a| self.check_expr(&a.value)).collect();
+                        let arg_tys: Vec<_> =
+                            args.iter().map(|a| self.check_expr(&a.value)).collect();
                         let ret_ty = self.ctx.fresh_infer();
                         let fn_ty = self.ctx.function(arg_tys, ret_ty);
                         self.unify(callee_ty, fn_ty, callee.span);
@@ -1750,7 +1944,11 @@ impl TypeChecker {
                 }
             }
 
-            ExprKind::MethodCall { receiver, method, args } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 let receiver_ty = self.check_expr(receiver);
                 // Auto-deref for method lookup (enables calling methods on &T)
                 let resolved_receiver = self.auto_deref(receiver_ty);
@@ -1790,8 +1988,11 @@ impl TypeChecker {
                             self.check_expr(&arg.value);
                         }
                         self.error(TypeError::Custom(
-                            format!("no method named `{}` found for type `{}`",
-                                    method.name, self.ctx.display(receiver_ty)),
+                            format!(
+                                "no method named `{}` found for type `{}`",
+                                method.name,
+                                self.ctx.display(receiver_ty)
+                            ),
                             method.span,
                         ));
                         self.ctx.error()
@@ -1863,7 +2064,11 @@ impl TypeChecker {
                 }
             }
 
-            ExprKind::If { condition, then_branch, else_branch } => {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond_ty = self.check_expr(condition);
                 self.unify(cond_ty, self.ctx.bool(), condition.span);
 
@@ -1914,7 +2119,9 @@ impl TypeChecker {
                 self.ctx.never()
             }
 
-            ExprKind::While { condition, body, .. } => {
+            ExprKind::While {
+                condition, body, ..
+            } => {
                 let cond_ty = self.check_expr(condition);
                 self.unify(cond_ty, self.ctx.bool(), condition.span);
 
@@ -1925,7 +2132,12 @@ impl TypeChecker {
                 self.ctx.unit()
             }
 
-            ExprKind::For { pattern, iterable, body, .. } => {
+            ExprKind::For {
+                pattern,
+                iterable,
+                body,
+                ..
+            } => {
                 let iter_ty = self.check_expr(iterable);
                 let elem_ty = self.ctx.fresh_infer();
 
@@ -1960,7 +2172,8 @@ impl TypeChecker {
                     self.error(TypeError::ReturnOutsideFunction { span: expr.span });
                 }
 
-                let return_ty = value.as_ref()
+                let return_ty = value
+                    .as_ref()
                     .map(|v| self.check_expr(v))
                     .unwrap_or(self.ctx.unit());
 
@@ -2026,18 +2239,27 @@ impl TypeChecker {
                 }
             }
 
-            ExprKind::Closure { params, return_type, body } => {
+            ExprKind::Closure {
+                params,
+                return_type,
+                body,
+            } => {
                 self.symbols.push_scope(ScopeKind::Closure);
 
-                let param_tys: Vec<_> = params.iter().map(|p| {
-                    let ty = p.ty.as_ref()
-                        .map(|t| self.resolve_ast_type(t))
-                        .unwrap_or_else(|| self.ctx.fresh_infer());
-                    self.bind_pattern(&p.pattern, ty, BindingKind::Parameter);
-                    ty
-                }).collect();
+                let param_tys: Vec<_> = params
+                    .iter()
+                    .map(|p| {
+                        let ty =
+                            p.ty.as_ref()
+                                .map(|t| self.resolve_ast_type(t))
+                                .unwrap_or_else(|| self.ctx.fresh_infer());
+                        self.bind_pattern(&p.pattern, ty, BindingKind::Parameter);
+                        ty
+                    })
+                    .collect();
 
-                let expected_ret = return_type.as_ref()
+                let expected_ret = return_type
+                    .as_ref()
                     .map(|t| self.resolve_ast_type(t))
                     .unwrap_or_else(|| self.ctx.fresh_infer());
 
@@ -2070,9 +2292,7 @@ impl TypeChecker {
 
                 // Extract inner type from Option<T> or Result<T, E>
                 match self.ctx.get(resolved).clone() {
-                    Ty::Enum(e)
-                        if e.name.as_ref() == "Option" || e.name.as_ref() == "Result" =>
-                    {
+                    Ty::Enum(e) if e.name.as_ref() == "Option" || e.name.as_ref() == "Result" => {
                         // Find the "Some" or "Ok" variant and get its inner type
                         for variant in &e.variants {
                             if variant.name.as_ref() == "Some" || variant.name.as_ref() == "Ok" {
@@ -2125,20 +2345,24 @@ impl TypeChecker {
                         // Check for explicit type arguments
                         if let Some(args) = &segment.args {
                             // Resolve type args to TypeIds for substitution
-                            let type_args: Vec<TypeId> = args.args.iter().map(|arg| {
-                                match arg {
+                            let type_args: Vec<TypeId> = args
+                                .args
+                                .iter()
+                                .map(|arg| match arg {
                                     GenericArg::Type(t) => self.resolve_ast_type(t),
                                     GenericArg::Const(_) => self.ctx.fresh_infer(),
-                                }
-                            }).collect();
+                                })
+                                .collect();
 
                             // Extract type names for monomorphization
-                            let type_arg_names: Vec<String> = args.args.iter().filter_map(|arg| {
-                                match arg {
+                            let type_arg_names: Vec<String> = args
+                                .args
+                                .iter()
+                                .filter_map(|arg| match arg {
                                     GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
                                     GenericArg::Const(_) => None,
-                                }
-                            }).collect();
+                                })
+                                .collect();
 
                             // Record instantiation for monomorphization
                             if !type_arg_names.is_empty() {
@@ -2205,7 +2429,9 @@ impl TypeChecker {
 
                         // If we have a valid struct type, check field types
                         if let Ty::Struct(s) = self.ctx.get(struct_ty).clone() {
-                            if let Some(field_def) = s.fields.iter().find(|f| f.name == field.name.name) {
+                            if let Some(field_def) =
+                                s.fields.iter().find(|f| f.name == field.name.name)
+                            {
                                 self.unify(value_ty, field_def.ty, value.span);
                             }
                         }
@@ -2278,33 +2504,39 @@ impl TypeChecker {
                         }
 
                         // Extract type names for monomorphization
-                        let type_arg_names: Vec<String> = args.args.iter().filter_map(|arg| {
-                            match arg {
+                        let type_arg_names: Vec<String> = args
+                            .args
+                            .iter()
+                            .filter_map(|arg| match arg {
                                 GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
                                 GenericArg::Const(_) => None,
-                            }
-                        }).collect();
+                            })
+                            .collect();
 
                         // Resolve explicit type arguments
-                        let type_args: Vec<TypeId> = args.args.iter().map(|arg| {
-                            match arg {
+                        let type_args: Vec<TypeId> = args
+                            .args
+                            .iter()
+                            .map(|arg| match arg {
                                 GenericArg::Type(t) => self.resolve_ast_type(t),
                                 GenericArg::Const(_) => self.ctx.fresh_infer(),
-                            }
-                        }).collect();
+                            })
+                            .collect();
 
                         // Verify trait bounds on explicit type arguments
                         self.verify_trait_bounds(&sig.generic_params, &type_args, span);
 
                         // Create substitutions
-                        let substitutions: Vec<(GenericVar, TypeId)> = sig.generic_params
+                        let substitutions: Vec<(GenericVar, TypeId)> = sig
+                            .generic_params
                             .iter()
                             .zip(type_args.iter())
                             .map(|(gp, &arg)| (gp.var, arg))
                             .collect();
 
                         // Substitute in params and return type
-                        let params: Vec<TypeId> = sig.params
+                        let params: Vec<TypeId> = sig
+                            .params
                             .iter()
                             .map(|&p| self.ctx.substitute(p, &substitutions))
                             .collect();
@@ -2322,7 +2554,8 @@ impl TypeChecker {
                     } else {
                         // No explicit type args - create fresh inference vars for each generic param
                         // The actual types will be inferred from usage
-                        let infer_args: Vec<TypeId> = sig.generic_params
+                        let infer_args: Vec<TypeId> = sig
+                            .generic_params
                             .iter()
                             .map(|_| self.ctx.fresh_infer())
                             .collect();
@@ -2335,13 +2568,15 @@ impl TypeChecker {
                             span: span.start,
                         });
 
-                        let substitutions: Vec<(GenericVar, TypeId)> = sig.generic_params
+                        let substitutions: Vec<(GenericVar, TypeId)> = sig
+                            .generic_params
                             .iter()
                             .zip(infer_args.iter())
                             .map(|(gp, &arg)| (gp.var, arg))
                             .collect();
 
-                        let params: Vec<TypeId> = sig.params
+                        let params: Vec<TypeId> = sig
+                            .params
                             .iter()
                             .map(|&p| self.ctx.substitute(p, &substitutions))
                             .collect();
@@ -2368,7 +2603,8 @@ impl TypeChecker {
                 let type_id = type_def.ty;
 
                 // Look up the static method on this type
-                let qualified_name: std::sync::Arc<str> = format!("{}::{}", type_name, method_name).into();
+                let qualified_name: std::sync::Arc<str> =
+                    format!("{}::{}", type_name, method_name).into();
                 if let Some(sig) = self.functions.lookup(&qualified_name).cloned() {
                     // Found the static method - return its function type
                     return self.ctx.function(sig.params.clone(), sig.return_type);
@@ -2376,14 +2612,21 @@ impl TypeChecker {
 
                 // Also try lookup_method (for methods registered via impl blocks)
                 if let Some((method_sig, _)) = self.traits.lookup_method(type_id, method_name) {
-                    return self.ctx.function(method_sig.params.clone(), method_sig.return_type);
+                    return self
+                        .ctx
+                        .function(method_sig.params.clone(), method_sig.return_type);
                 }
 
                 // Check if this is an enum variant constructor
                 if let Ty::Enum(enum_type) = self.ctx.get(type_id).clone() {
-                    if let Some(variant) = enum_type.variants.iter().find(|v| v.name.as_ref() == method_name.as_ref()) {
+                    if let Some(variant) = enum_type
+                        .variants
+                        .iter()
+                        .find(|v| v.name.as_ref() == method_name.as_ref())
+                    {
                         // Check if this is a unit variant (no fields) - return enum type directly
-                        let is_unit_variant = matches!(&variant.fields, crate::types::VariantFields::Unit);
+                        let is_unit_variant =
+                            matches!(&variant.fields, crate::types::VariantFields::Unit);
 
                         // Get raw param types from variant fields
                         let raw_param_types: Vec<TypeId> = match &variant.fields {
@@ -2396,12 +2639,14 @@ impl TypeChecker {
 
                         // Handle generic enum - substitute with fresh inference vars
                         if !enum_type.generic_params.is_empty() {
-                            let infer_args: Vec<TypeId> = enum_type.generic_params
+                            let infer_args: Vec<TypeId> = enum_type
+                                .generic_params
                                 .iter()
                                 .map(|_| self.ctx.fresh_infer())
                                 .collect();
 
-                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type.generic_params
+                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type
+                                .generic_params
                                 .iter()
                                 .zip(infer_args.iter())
                                 .map(|(gp, &arg)| (gp.var, arg))
@@ -2441,7 +2686,10 @@ impl TypeChecker {
                 }
 
                 self.error(TypeError::Custom(
-                    format!("no static method `{}` found for type `{}`", method_name, type_name),
+                    format!(
+                        "no static method `{}` found for type `{}`",
+                        method_name, type_name
+                    ),
                     span,
                 ));
                 self.ctx.error()
@@ -2465,9 +2713,12 @@ impl TypeChecker {
     /// Extract variant name from a TupleStruct pattern path.
     /// For `Some(x)` returns "Some", for `Option::Some(x)` returns "Some"
     fn extract_variant_name<'a>(&self, path: &'a TypePath) -> &'a str {
-        &path.segments.last()
+        &path
+            .segments
+            .last()
             .expect("TupleStruct path must have at least one segment")
-            .ident.name
+            .ident
+            .name
     }
 
     /// Check a pattern, returning its type.
@@ -2498,7 +2749,8 @@ impl TypeChecker {
                         expected
                     }
                     _ => {
-                        let elem_tys: Vec<_> = patterns.iter()
+                        let elem_tys: Vec<_> = patterns
+                            .iter()
                             .map(|p| {
                                 let ty = self.ctx.fresh_infer();
                                 self.check_pattern(p, ty);
@@ -2527,24 +2779,25 @@ impl TypeChecker {
                 // Handle plain enum or Applied (generic) enum
                 let (enum_type, type_args) = match self.ctx.get(resolved).clone() {
                     Ty::Enum(e) => (Some(e), Vec::new()),
-                    Ty::Applied { base, args } => {
-                        match self.ctx.get(base).clone() {
-                            Ty::Enum(e) => (Some(e), args),
-                            _ => (None, Vec::new()),
-                        }
-                    }
+                    Ty::Applied { base, args } => match self.ctx.get(base).clone() {
+                        Ty::Enum(e) => (Some(e), args),
+                        _ => (None, Vec::new()),
+                    },
                     _ => (None, Vec::new()),
                 };
 
                 if let Some(enum_type) = enum_type {
                     let variant_name = self.extract_variant_name(path);
 
-                    if let Some(variant) = enum_type.variants.iter()
+                    if let Some(variant) = enum_type
+                        .variants
+                        .iter()
                         .find(|v| v.name.as_ref() == variant_name)
                     {
                         if let VariantFields::Tuple(field_tys) = &variant.fields {
                             // Build generic substitutions
-                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type.generic_params
+                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type
+                                .generic_params
                                 .iter()
                                 .zip(type_args.iter())
                                 .map(|(gp, &arg)| (gp.var, arg))
@@ -2578,7 +2831,10 @@ impl TypeChecker {
                 expected
             }
 
-            PatternKind::Reference { mutable, pattern: inner } => {
+            PatternKind::Reference {
+                mutable,
+                pattern: inner,
+            } => {
                 let inner_ty = match self.ctx.get(self.resolve(expected)).clone() {
                     Ty::Reference { inner, .. } => inner,
                     _ => self.ctx.fresh_infer(),
@@ -2596,7 +2852,12 @@ impl TypeChecker {
         match &pattern.kind {
             PatternKind::Wildcard => {}
 
-            PatternKind::Binding { name, mutable, subpattern, .. } => {
+            PatternKind::Binding {
+                name,
+                mutable,
+                subpattern,
+                ..
+            } => {
                 let _ = self.symbols.define(Binding {
                     name: name.name.clone(),
                     ty,
@@ -2641,24 +2902,25 @@ impl TypeChecker {
                 // Handle plain enum or Applied (generic) enum
                 let (enum_type, type_args) = match self.ctx.get(resolved).clone() {
                     Ty::Enum(e) => (Some(e), Vec::new()),
-                    Ty::Applied { base, args } => {
-                        match self.ctx.get(base).clone() {
-                            Ty::Enum(e) => (Some(e), args),
-                            _ => (None, Vec::new()),
-                        }
-                    }
+                    Ty::Applied { base, args } => match self.ctx.get(base).clone() {
+                        Ty::Enum(e) => (Some(e), args),
+                        _ => (None, Vec::new()),
+                    },
                     _ => (None, Vec::new()),
                 };
 
                 if let Some(enum_type) = enum_type {
                     let variant_name = self.extract_variant_name(path);
 
-                    if let Some(variant) = enum_type.variants.iter()
+                    if let Some(variant) = enum_type
+                        .variants
+                        .iter()
                         .find(|v| v.name.as_ref() == variant_name)
                     {
                         if let VariantFields::Tuple(field_tys) = &variant.fields {
                             // Build generic substitutions
-                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type.generic_params
+                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type
+                                .generic_params
                                 .iter()
                                 .zip(type_args.iter())
                                 .map(|(gp, &arg)| (gp.var, arg))
@@ -2712,7 +2974,8 @@ impl TypeChecker {
                     path.segments[0].ident.name.to_string()
                 } else {
                     // Multi-segment path like Foo::Bar
-                    path.segments.iter()
+                    path.segments
+                        .iter()
                         .map(|s| s.ident.name.to_string())
                         .collect::<Vec<_>>()
                         .join("::")
@@ -2729,13 +2992,24 @@ impl TypeChecker {
                 format!("[{}]", self.type_name_from_ast(element))
             }
             TypeKind::Tuple(elements) => {
-                let names: Vec<_> = elements.iter().map(|e| self.type_name_from_ast(e)).collect();
+                let names: Vec<_> = elements
+                    .iter()
+                    .map(|e| self.type_name_from_ast(e))
+                    .collect();
                 format!("({})", names.join(", "))
             }
-            TypeKind::Function { params, return_type } => {
-                let param_names: Vec<_> = params.iter().map(|p| self.type_name_from_ast(p)).collect();
+            TypeKind::Function {
+                params,
+                return_type,
+            } => {
+                let param_names: Vec<_> =
+                    params.iter().map(|p| self.type_name_from_ast(p)).collect();
                 match return_type {
-                    Some(ret) => format!("fn({}) -> {}", param_names.join(", "), self.type_name_from_ast(ret)),
+                    Some(ret) => format!(
+                        "fn({}) -> {}",
+                        param_names.join(", "),
+                        self.type_name_from_ast(ret)
+                    ),
                     None => format!("fn({})", param_names.join(", ")),
                 }
             }
@@ -2776,12 +3050,16 @@ impl TypeChecker {
                             }
 
                             // Resolve each type argument
-                            let type_args: Vec<TypeId> = args.args.iter().map(|arg| {
-                                match arg {
-                                    GenericArg::Type(t) => self.resolve_ast_type(t),
-                                    GenericArg::Const(_) => self.ctx.fresh_infer(), // Const generics not fully supported
-                                }
-                            }).collect();
+                            let type_args: Vec<TypeId> = args
+                                .args
+                                .iter()
+                                .map(|arg| {
+                                    match arg {
+                                        GenericArg::Type(t) => self.resolve_ast_type(t),
+                                        GenericArg::Const(_) => self.ctx.fresh_infer(), // Const generics not fully supported
+                                    }
+                                })
+                                .collect();
 
                             // Create substitutions and apply them
                             let substitutions: Vec<(GenericVar, TypeId)> = generic_params
@@ -2827,9 +3105,13 @@ impl TypeChecker {
                 self.ctx.tuple(elem_tys)
             }
 
-            TypeKind::Function { params, return_type } => {
+            TypeKind::Function {
+                params,
+                return_type,
+            } => {
                 let param_tys: Vec<_> = params.iter().map(|p| self.resolve_ast_type(p)).collect();
-                let ret_ty = return_type.as_ref()
+                let ret_ty = return_type
+                    .as_ref()
                     .map(|r| self.resolve_ast_type(r))
                     .unwrap_or(self.ctx.unit());
                 self.ctx.function(param_tys, ret_ty)
@@ -2856,7 +3138,11 @@ mod tests {
     fn check(source: &str) -> (TypeChecker, Vec<TypeError>) {
         let mut parser = Parser::new(source, 0);
         let module = parser.parse_module();
-        assert!(parser.errors().is_empty(), "Parse errors: {:?}", parser.errors());
+        assert!(
+            parser.errors().is_empty(),
+            "Parse errors: {:?}",
+            parser.errors()
+        );
 
         let mut checker = TypeChecker::new();
         checker.check_module(&module);
@@ -2887,10 +3173,12 @@ mod tests {
 
     #[test]
     fn test_function_call() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             fn add(a: i64, b: i64) -> i64 { a + b }
             fn main() { let x = add(1, 2); }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
@@ -2914,47 +3202,57 @@ mod tests {
 
     #[test]
     fn test_generic_function() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             fn identity<T>(x: T) -> T { x }
             fn main() { let x = identity(42); }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_generic_struct() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Pair<T, U> { first: T, second: U }
             fn main() { }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_generic_enum() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             enum Option<T> { Some(T), None }
             fn main() { }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_generic_multiple_params() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             fn swap<A, B>(a: A, b: B) -> (B, A) { (b, a) }
             fn main() { let x = swap(1, true); }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_trait_definition() {
-        let (checker, errors) = check(r#"
+        let (checker, errors) = check(
+            r#"
             trait Display {
                 fn display(self) -> String;
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
         // Verify the trait was registered
         assert!(checker.traits.lookup("Display").is_some());
@@ -2962,13 +3260,15 @@ mod tests {
 
     #[test]
     fn test_trait_with_default_method() {
-        let (checker, errors) = check(r#"
+        let (checker, errors) = check(
+            r#"
             trait Greet {
                 fn greet() -> String {
                     "Hello"
                 }
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
         let trait_def = checker.traits.lookup("Greet").unwrap();
         assert_eq!(trait_def.methods.len(), 1);
@@ -2977,7 +3277,8 @@ mod tests {
 
     #[test]
     fn test_impl_block() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Point { x: i64, y: i64 }
 
             impl Point {
@@ -2985,13 +3286,15 @@ mod tests {
                     Point { x: x, y: y }
                 }
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_trait_impl() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             trait Display {
                 fn display(self) -> String;
             }
@@ -3003,13 +3306,15 @@ mod tests {
                     "Point"
                 }
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_trait_impl_missing_method() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             trait Display {
                 fn display(self) -> String;
             }
@@ -3019,27 +3324,31 @@ mod tests {
             impl Display for Point {
                 // Missing display method
             }
-        "#);
+        "#,
+        );
         assert!(!errors.is_empty());
         assert!(matches!(&errors[0], TypeError::MissingTraitMethod { .. }));
     }
 
     #[test]
     fn test_undefined_trait_impl() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Point { x: i64, y: i64 }
 
             impl UnknownTrait for Point {
                 fn foo() { }
             }
-        "#);
+        "#,
+        );
         assert!(!errors.is_empty());
         assert!(matches!(&errors[0], TypeError::UndefinedTrait { .. }));
     }
 
     #[test]
     fn test_generic_with_trait_bound() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             trait Display {
                 fn display(self) -> String;
             }
@@ -3050,7 +3359,8 @@ mod tests {
                 // For now, just verify trait bounds are collected.
                 x
             }
-        "#);
+        "#,
+        );
         // This should parse and type-check without errors
         // Full method resolution on trait-bounded generics is future work
         assert!(errors.is_empty(), "Errors: {:?}", errors);
@@ -3058,7 +3368,8 @@ mod tests {
 
     #[test]
     fn test_supertrait() {
-        let (checker, errors) = check(r#"
+        let (checker, errors) = check(
+            r#"
             trait Base {
                 fn base() -> i64;
             }
@@ -3066,7 +3377,8 @@ mod tests {
             trait Derived: Base {
                 fn derived() -> i64;
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
         let derived = checker.traits.lookup("Derived").unwrap();
         assert_eq!(derived.supertraits.len(), 1);
@@ -3075,7 +3387,8 @@ mod tests {
 
     #[test]
     fn test_method_call_basic() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Counter { value: i64 }
 
             impl Counter {
@@ -3088,13 +3401,15 @@ mod tests {
                 let c = Counter { value: 0 };
                 let x = c.increment();
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_method_call_with_args() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Calculator { base: i64 }
 
             impl Calculator {
@@ -3107,13 +3422,15 @@ mod tests {
                 let calc = Calculator { base: 10 };
                 let result = calc.add(5);
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_method_call_multiple_args() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Point { x: i64, y: i64 }
 
             impl Point {
@@ -3126,20 +3443,23 @@ mod tests {
                 let p = Point { x: 0, y: 0 };
                 let p2 = p.translate(10, 20);
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_method_not_found() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Point { x: i64, y: i64 }
 
             fn main() {
                 let p = Point { x: 0, y: 0 };
                 p.unknown_method();
             }
-        "#);
+        "#,
+        );
         assert!(!errors.is_empty());
         // Should have an error about no method found
         let error_msg = format!("{:?}", errors[0]);
@@ -3148,7 +3468,8 @@ mod tests {
 
     #[test]
     fn test_method_wrong_arg_count() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Counter { value: i64 }
 
             impl Counter {
@@ -3161,14 +3482,16 @@ mod tests {
                 let c = Counter { value: 0 };
                 c.add(1, 2, 3);
             }
-        "#);
+        "#,
+        );
         assert!(!errors.is_empty());
         assert!(matches!(&errors[0], TypeError::ArgCountMismatch { .. }));
     }
 
     #[test]
     fn test_static_method() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Point { x: i64, y: i64 }
 
             impl Point {
@@ -3176,14 +3499,16 @@ mod tests {
                     Point { x: 0, y: 0 }
                 }
             }
-        "#);
+        "#,
+        );
         // Static methods in impl blocks should be collected
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 
     #[test]
     fn test_method_return_type() {
-        let (_, errors) = check(r#"
+        let (_, errors) = check(
+            r#"
             struct Counter { value: i64 }
 
             impl Counter {
@@ -3196,7 +3521,8 @@ mod tests {
                 let c = Counter { value: 42 };
                 let x: i64 = c.get_value();
             }
-        "#);
+        "#,
+        );
         assert!(errors.is_empty(), "Errors: {:?}", errors);
     }
 }

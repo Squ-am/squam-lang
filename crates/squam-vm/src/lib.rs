@@ -11,5 +11,5 @@ pub use inline_cache::{
     CacheState, CacheStats, CallSiteId, GlobalCacheStats, InlineCache, InlineCacheManager, TypeId,
 };
 pub use memory::{MemoryManager, MemoryMode, MemoryProfiler, MemoryStats};
-pub use value::{Closure, NativeFunction, SquamIterator, Upvalue, Value, VMNativeFnId};
+pub use value::{Closure, NativeFunction, SquamIterator, Upvalue, VMNativeFnId, Value};
 pub use vm::{RuntimeError, VMNativeFn, VM};

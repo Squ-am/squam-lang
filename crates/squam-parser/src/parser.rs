@@ -1,6 +1,8 @@
-use squam_lexer::{Lexer, Span, Token, TokenKind, parse_int, parse_float, parse_string, parse_char};
 use crate::ast::*;
-use crate::precedence::{Precedence, token_to_binary_op, compound_assign_to_op};
+use crate::precedence::{compound_assign_to_op, token_to_binary_op, Precedence};
+use squam_lexer::{
+    parse_char, parse_float, parse_int, parse_string, Lexer, Span, Token, TokenKind,
+};
 use std::sync::Arc;
 
 /// Parse errors.
@@ -70,8 +72,7 @@ impl<'src> Parser<'src> {
 
     /// Advance to the next token, returning the current one.
     fn advance(&mut self) -> Token {
-        let prev = std::mem::replace(&mut self.current, self.lexer.next_token());
-        prev
+        std::mem::replace(&mut self.current, self.lexer.next_token())
     }
 
     /// Check if the current token is of the given kind.
@@ -379,7 +380,10 @@ impl<'src> Parser<'src> {
 
         while !self.check(TokenKind::RParen) && !self.check(TokenKind::Eof) {
             // Handle self parameter
-            if self.check(TokenKind::SelfLower) || (self.check(TokenKind::And) && self.lexer.check(TokenKind::SelfLower)) || (self.check(TokenKind::And) && self.lexer.check(TokenKind::Mut)) {
+            if self.check(TokenKind::SelfLower)
+                || (self.check(TokenKind::And) && self.lexer.check(TokenKind::SelfLower))
+                || (self.check(TokenKind::And) && self.lexer.check(TokenKind::Mut))
+            {
                 let param = self.parse_self_param()?;
                 params.push(param);
             } else {
@@ -450,7 +454,12 @@ impl<'src> Parser<'src> {
             span: self_token.span,
         };
 
-        Ok(Parameter { pattern, ty, default: None, span })
+        Ok(Parameter {
+            pattern,
+            ty,
+            default: None,
+            span,
+        })
     }
 
     /// Parse a regular parameter.
@@ -470,7 +479,12 @@ impl<'src> Parser<'src> {
         };
 
         let span = start.merge(end_span);
-        Ok(Parameter { pattern, ty, default, span })
+        Ok(Parameter {
+            pattern,
+            ty,
+            default,
+            span,
+        })
     }
 
     /// Parse an identifier.
@@ -480,7 +494,11 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse a struct definition.
-    fn parse_struct(&mut self, visibility: Visibility, attributes: Vec<Attribute>) -> Result<StructDef, ParseError> {
+    fn parse_struct(
+        &mut self,
+        visibility: Visibility,
+        attributes: Vec<Attribute>,
+    ) -> Result<StructDef, ParseError> {
         let start = self.current.span;
         self.expect(TokenKind::Struct)?;
 
@@ -576,7 +594,11 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse an enum definition.
-    fn parse_enum(&mut self, visibility: Visibility, attributes: Vec<Attribute>) -> Result<EnumDef, ParseError> {
+    fn parse_enum(
+        &mut self,
+        visibility: Visibility,
+        attributes: Vec<Attribute>,
+    ) -> Result<EnumDef, ParseError> {
         let start = self.current.span;
         self.expect(TokenKind::Enum)?;
 
@@ -694,7 +716,10 @@ impl<'src> Parser<'src> {
                 TokenKind::Const => ImplItem::Const(self.parse_const(visibility)?),
                 TokenKind::Type => ImplItem::Type(self.parse_type_alias(visibility)?),
                 _ => {
-                    self.error("expected fn, const, or type in impl block", self.current.span);
+                    self.error(
+                        "expected fn, const, or type in impl block",
+                        self.current.span,
+                    );
                     self.advance();
                     continue;
                 }
@@ -1410,7 +1435,11 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse an expression with minimum precedence and optional struct literal restriction.
-    fn parse_expr_with_restrictions(&mut self, min_prec: Precedence, no_struct: bool) -> Result<Expr, ParseError> {
+    fn parse_expr_with_restrictions(
+        &mut self,
+        min_prec: Precedence,
+        no_struct: bool,
+    ) -> Result<Expr, ParseError> {
         let mut left = self.parse_prefix_expr_with_restrictions(no_struct)?;
 
         while let Some(prec) = Precedence::of_infix_token(self.current.kind) {
@@ -1467,11 +1496,9 @@ impl<'src> Parser<'src> {
             TokenKind::IntLiteral => {
                 let token = self.advance();
                 let s = self.slice(token.span);
-                let value = parse_int(s).map_err(|_| {
-                    ParseError::Custom {
-                        message: "invalid integer literal".to_string(),
-                        span: token.span,
-                    }
+                let value = parse_int(s).map_err(|_| ParseError::Custom {
+                    message: "invalid integer literal".to_string(),
+                    span: token.span,
                 })?;
                 Ok(Expr {
                     kind: ExprKind::Literal(Literal::Int(value)),
@@ -1481,11 +1508,9 @@ impl<'src> Parser<'src> {
             TokenKind::FloatLiteral => {
                 let token = self.advance();
                 let s = self.slice(token.span);
-                let value = parse_float(s).map_err(|_| {
-                    ParseError::Custom {
-                        message: "invalid float literal".to_string(),
-                        span: token.span,
-                    }
+                let value = parse_float(s).map_err(|_| ParseError::Custom {
+                    message: "invalid float literal".to_string(),
+                    span: token.span,
                 })?;
                 Ok(Expr {
                     kind: ExprKind::Literal(Literal::Float(value)),
@@ -1495,11 +1520,9 @@ impl<'src> Parser<'src> {
             TokenKind::StringLiteral => {
                 let token = self.advance();
                 let s = self.slice(token.span);
-                let value = parse_string(s).map_err(|e| {
-                    ParseError::Custom {
-                        message: e.to_string(),
-                        span: token.span,
-                    }
+                let value = parse_string(s).map_err(|e| ParseError::Custom {
+                    message: e.to_string(),
+                    span: token.span,
                 })?;
                 Ok(Expr {
                     kind: ExprKind::Literal(Literal::String(value)),
@@ -1518,11 +1541,9 @@ impl<'src> Parser<'src> {
             TokenKind::CharLiteral => {
                 let token = self.advance();
                 let s = self.slice(token.span);
-                let value = parse_char(s).map_err(|e| {
-                    ParseError::Custom {
-                        message: e.to_string(),
-                        span: token.span,
-                    }
+                let value = parse_char(s).map_err(|e| ParseError::Custom {
+                    message: e.to_string(),
+                    span: token.span,
                 })?;
                 Ok(Expr {
                     kind: ExprKind::Literal(Literal::Char(value)),
@@ -1789,9 +1810,10 @@ impl<'src> Parser<'src> {
             }
 
             // Path or struct literal
-            TokenKind::Identifier | TokenKind::SelfLower | TokenKind::SelfUpper | TokenKind::ColonColon => {
-                self.parse_path_or_struct_expr(no_struct)
-            }
+            TokenKind::Identifier
+            | TokenKind::SelfLower
+            | TokenKind::SelfUpper
+            | TokenKind::ColonColon => self.parse_path_or_struct_expr(no_struct),
 
             // Range with no start
             TokenKind::DotDot | TokenKind::DotDotEq => {
@@ -2013,14 +2035,15 @@ impl<'src> Parser<'src> {
             let start = self.current.span;
 
             // Check for named argument: `name: value`
-            let (name, value) = if self.check(TokenKind::Identifier) && self.peek_is(TokenKind::Colon) {
-                let ident = self.parse_identifier()?;
-                self.expect(TokenKind::Colon)?;
-                let value = self.parse_expression()?;
-                (Some(ident), value)
-            } else {
-                (None, self.parse_expression()?)
-            };
+            let (name, value) =
+                if self.check(TokenKind::Identifier) && self.peek_is(TokenKind::Colon) {
+                    let ident = self.parse_identifier()?;
+                    self.expect(TokenKind::Colon)?;
+                    let value = self.parse_expression()?;
+                    (Some(ident), value)
+                } else {
+                    (None, self.parse_expression()?)
+                };
 
             let span = start.merge(value.span);
             args.push(CallArg { name, value, span });
@@ -2635,7 +2658,11 @@ impl<'src> Parser<'src> {
             };
 
             let span = field_start.merge(self.current.span);
-            fields.push(PatternField { name, pattern, span });
+            fields.push(PatternField {
+                name,
+                pattern,
+                span,
+            });
 
             if !self.consume(TokenKind::Comma) {
                 break;
@@ -2689,12 +2716,30 @@ impl<'src> Parser<'src> {
                             // Escaped brace - add literal brace
                             current_literal.push(chars.next().unwrap());
                         }
-                        'n' => { chars.next(); current_literal.push('\n'); }
-                        'r' => { chars.next(); current_literal.push('\r'); }
-                        't' => { chars.next(); current_literal.push('\t'); }
-                        '\\' => { chars.next(); current_literal.push('\\'); }
-                        '"' => { chars.next(); current_literal.push('"'); }
-                        '0' => { chars.next(); current_literal.push('\0'); }
+                        'n' => {
+                            chars.next();
+                            current_literal.push('\n');
+                        }
+                        'r' => {
+                            chars.next();
+                            current_literal.push('\r');
+                        }
+                        't' => {
+                            chars.next();
+                            current_literal.push('\t');
+                        }
+                        '\\' => {
+                            chars.next();
+                            current_literal.push('\\');
+                        }
+                        '"' => {
+                            chars.next();
+                            current_literal.push('"');
+                        }
+                        '0' => {
+                            chars.next();
+                            current_literal.push('\0');
+                        }
                         _ => {
                             // Unknown escape, keep as-is
                             current_literal.push(c);
@@ -2740,11 +2785,9 @@ impl<'src> Parser<'src> {
                 }
 
                 // Parse the expression
-                let expr = parse_expr_string(&expr_content).map_err(|e| {
-                    ParseError::Custom {
-                        message: format!("error parsing format string expression: {}", e),
-                        span,
-                    }
+                let expr = parse_expr_string(&expr_content).map_err(|e| ParseError::Custom {
+                    message: format!("error parsing format string expression: {}", e),
+                    span,
                 })?;
 
                 parts.push(FormatPart::Expr(Box::new(expr)));
@@ -2835,13 +2878,25 @@ mod tests {
     #[test]
     fn test_binary_ops() {
         let expr = parse_expr("1 + 2");
-        assert!(matches!(expr.kind, ExprKind::Binary { op: BinaryOp::Add, .. }));
+        assert!(matches!(
+            expr.kind,
+            ExprKind::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
 
         let expr = parse_expr("1 * 2 + 3");
         // Should parse as (1 * 2) + 3
         if let ExprKind::Binary { op, left, .. } = expr.kind {
             assert_eq!(op, BinaryOp::Add);
-            assert!(matches!(left.kind, ExprKind::Binary { op: BinaryOp::Mul, .. }));
+            assert!(matches!(
+                left.kind,
+                ExprKind::Binary {
+                    op: BinaryOp::Mul,
+                    ..
+                }
+            ));
         } else {
             panic!("Expected binary expression");
         }
@@ -2850,10 +2905,22 @@ mod tests {
     #[test]
     fn test_unary_ops() {
         let expr = parse_expr("-42");
-        assert!(matches!(expr.kind, ExprKind::Unary { op: UnaryOp::Neg, .. }));
+        assert!(matches!(
+            expr.kind,
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                ..
+            }
+        ));
 
         let expr = parse_expr("!true");
-        assert!(matches!(expr.kind, ExprKind::Unary { op: UnaryOp::Not, .. }));
+        assert!(matches!(
+            expr.kind,
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -26,7 +26,10 @@ impl Span {
 
     /// Merge two spans into one that covers both.
     pub fn merge(self, other: Span) -> Span {
-        debug_assert_eq!(self.file_id, other.file_id, "Cannot merge spans from different files");
+        debug_assert_eq!(
+            self.file_id, other.file_id,
+            "Cannot merge spans from different files"
+        );
         Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
