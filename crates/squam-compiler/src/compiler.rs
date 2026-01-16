@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use squam_lexer::Span;
 use squam_parser::ast::*;
 use squam_types::TypeAnnotations;
 use crate::bytecode::{Chunk, Constant, FunctionProto, OpCode, UpvalueInfo};
@@ -161,7 +162,7 @@ pub struct Compiler {
 impl Compiler {
     /// Create a new compiler.
     pub fn new() -> Self {
-        Self {
+        let mut compiler = Self {
             states: Vec::new(),
             current_line: 1,
             struct_types: HashMap::new(),
@@ -174,12 +175,14 @@ impl Compiler {
             generic_defs: HashMap::new(),
             compiled_instantiations: HashMap::new(),
             current_substitution: HashMap::new(),
-        }
+        };
+        compiler.register_builtin_enums();
+        compiler
     }
 
     /// Create a new compiler with type annotations for optimized codegen.
     pub fn with_type_annotations(annotations: TypeAnnotations) -> Self {
-        Self {
+        let mut compiler = Self {
             states: Vec::new(),
             current_line: 1,
             struct_types: HashMap::new(),
@@ -192,7 +195,124 @@ impl Compiler {
             generic_defs: HashMap::new(),
             compiled_instantiations: HashMap::new(),
             current_substitution: HashMap::new(),
+        };
+        compiler.register_builtin_enums();
+        compiler
+    }
+
+    /// Register built-in generic enums (Option, Result) for monomorphization.
+    fn register_builtin_enums(&mut self) {
+        // Helper to make a type path for a generic param name
+        fn make_type_path(name: &str) -> Type {
+            Type {
+                kind: TypeKind::Path(TypePath {
+                    segments: vec![PathSegment {
+                        ident: Identifier { name: name.into(), span: Span::dummy() },
+                        args: None,
+                    }],
+                    span: Span::dummy(),
+                }),
+                span: Span::dummy(),
+            }
         }
+
+        // Option<T> = Some(T) | None
+        let option_def = EnumDef {
+            attributes: Vec::new(),
+            visibility: Visibility::Public,
+            name: Identifier { name: "Option".into(), span: Span::dummy() },
+            generics: Some(Generics {
+                params: vec![GenericParam::Type(TypeParam {
+                    name: Identifier { name: "T".into(), span: Span::dummy() },
+                    bounds: Vec::new(),
+                    default: None,
+                    span: Span::dummy(),
+                })],
+                where_clause: None,
+                span: Span::dummy(),
+            }),
+            variants: vec![
+                EnumVariant {
+                    name: Identifier { name: "Some".into(), span: Span::dummy() },
+                    fields: StructFields::Tuple(vec![
+                        TupleField {
+                            visibility: Visibility::Public,
+                            ty: make_type_path("T"),
+                            span: Span::dummy(),
+                        },
+                    ]),
+                    discriminant: None,
+                    span: Span::dummy(),
+                },
+                EnumVariant {
+                    name: Identifier { name: "None".into(), span: Span::dummy() },
+                    fields: StructFields::Unit,
+                    discriminant: None,
+                    span: Span::dummy(),
+                },
+            ],
+            span: Span::dummy(),
+        };
+        self.generic_defs.insert("Option".into(), GenericDef {
+            kind: GenericDefKind::Enum(option_def),
+            type_params: vec!["T".into()],
+        });
+
+        // Result<T, E> = Ok(T) | Err(E)
+        let result_def = EnumDef {
+            attributes: Vec::new(),
+            visibility: Visibility::Public,
+            name: Identifier { name: "Result".into(), span: Span::dummy() },
+            generics: Some(Generics {
+                params: vec![
+                    GenericParam::Type(TypeParam {
+                        name: Identifier { name: "T".into(), span: Span::dummy() },
+                        bounds: Vec::new(),
+                        default: None,
+                        span: Span::dummy(),
+                    }),
+                    GenericParam::Type(TypeParam {
+                        name: Identifier { name: "E".into(), span: Span::dummy() },
+                        bounds: Vec::new(),
+                        default: None,
+                        span: Span::dummy(),
+                    }),
+                ],
+                where_clause: None,
+                span: Span::dummy(),
+            }),
+            variants: vec![
+                EnumVariant {
+                    name: Identifier { name: "Ok".into(), span: Span::dummy() },
+                    fields: StructFields::Tuple(vec![
+                        TupleField {
+                            visibility: Visibility::Public,
+                            ty: make_type_path("T"),
+                            span: Span::dummy(),
+                        },
+                    ]),
+                    discriminant: None,
+                    span: Span::dummy(),
+                },
+                EnumVariant {
+                    name: Identifier { name: "Err".into(), span: Span::dummy() },
+                    fields: StructFields::Tuple(vec![
+                        TupleField {
+                            visibility: Visibility::Public,
+                            ty: make_type_path("E"),
+                            span: Span::dummy(),
+                        },
+                    ]),
+                    discriminant: None,
+                    span: Span::dummy(),
+                },
+            ],
+            span: Span::dummy(),
+        };
+        self.generic_defs.insert("Result".into(), GenericDef {
+            kind: GenericDefKind::Enum(result_def),
+            type_params: vec!["T".into(), "E".into()],
+        });
     }
 
     /// Set type annotations for optimized code generation.
@@ -222,16 +342,6 @@ impl Compiler {
     }
 
     // === Monomorphization helpers ===
-
-    /// Resolve a type name through the current substitution (for generics).
-    /// If the type is a generic parameter like "T", returns the concrete type.
-    /// Otherwise returns the original type name.
-    fn resolve_type_param(&self, type_name: &str) -> String {
-        self.current_substitution
-            .get(type_name)
-            .cloned()
-            .unwrap_or_else(|| type_name.to_string())
-    }
 
     /// Generate a mangled name for a generic instantiation.
     /// e.g., "identity" with ["i64"] -> "identity$i64"
@@ -1733,9 +1843,35 @@ impl Compiler {
                         let type_name = self.resolve_type_alias(&raw_type_name);
                         let method_name = path.segments[1].ident.name.to_string();
 
-                        // First check if it's an enum variant
-                        if let Some(enum_info) = self.enum_types.get(&type_name).cloned() {
-                            if let Some(&(variant_idx, field_count)) = enum_info.variants.get(&method_name) {
+                        // First check if it's an enum variant (may need on-demand monomorphization)
+                        let enum_info = if let Some(info) = self.enum_types.get(&type_name).cloned() {
+                            Some((type_name.clone(), info))
+                        } else if self.generic_defs.contains_key(&type_name) {
+                            // Generic enum - check if we have instantiation info and monomorphize
+                            let call_site_info = self.type_annotations.as_ref()
+                                .and_then(|ann| ann.get_call_site(callee.span.start))
+                                .map(|(_, type_args)| type_args.clone());
+
+                            if let Some(type_args) = call_site_info {
+                                // Monomorphize the enum on-demand
+                                let mangled_name = self.mangle_name(&type_name, &type_args);
+                                if !self.enum_types.contains_key(&mangled_name) {
+                                    if let Some(def) = self.generic_defs.get(&type_name).cloned() {
+                                        if let GenericDefKind::Enum(e) = &def.kind {
+                                            self.monomorphize_enum(&type_name, &e, &def.type_params, &type_args)?;
+                                        }
+                                    }
+                                }
+                                self.enum_types.get(&mangled_name).map(|info| (mangled_name, info.clone()))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some((enum_name, info)) = enum_info {
+                            if let Some(&(variant_idx, field_count)) = info.variants.get(&method_name) {
                                 if field_count == args.len() {
                                     // Compile arguments (variant fields)
                                     for arg in args {
@@ -1743,8 +1879,8 @@ impl Compiler {
                                     }
                                     // Create enum variant
                                     let enum_info_const = Constant::EnumInfo {
-                                        name: type_name.clone(),
-                                        variants: enum_info.variants_ordered.clone(),
+                                        name: enum_name,
+                                        variants: info.variants_ordered.clone(),
                                     };
                                     let enum_info_idx = self.add_constant(enum_info_const)?;
                                     self.emit(OpCode::Enum);
@@ -1778,6 +1914,38 @@ impl Compiler {
                         }
                     }
                 }
+
+                // Check for generic function call site resolution
+                if let ExprKind::Path(path) = &callee.kind {
+                    if path.segments.len() == 1 {
+                        let func_name = path.segments[0].ident.name.to_string();
+
+                        // Check if there's a generic instantiation at the callee's span
+                        // (type checker records at path span, not call expression span)
+                        if let Some((_, type_args)) = self.type_annotations.as_ref()
+                            .and_then(|ann| ann.get_call_site(callee.span.start))
+                        {
+                            // This is a call to a generic function - use the mangled name
+                            let mangled_name = self.mangle_name(&func_name, type_args);
+
+                            // Load the mangled function first (function must be on stack before args)
+                            let name_idx = self.chunk().add_constant(Constant::String(mangled_name));
+                            self.emit(OpCode::LoadGlobal);
+                            self.emit_u16(name_idx);
+
+                            // Then compile arguments
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+
+                            // Call
+                            self.emit(OpCode::Call);
+                            self.emit_byte(args.len() as u8);
+                            return Ok(());
+                        }
+                    }
+                }
+
                 // Regular function call
                 self.compile_expr(callee)?;
                 for arg in args {
@@ -2088,7 +2256,17 @@ impl Compiler {
                 let raw_name = path.segments.last()
                     .map(|s| s.ident.name.to_string())
                     .unwrap_or_default();
-                let struct_name = self.resolve_type_alias(&raw_name);
+                let base_struct_name = self.resolve_type_alias(&raw_name);
+
+                // Check for generic struct instantiation at this call site
+                let struct_name = if let Some((_, type_args)) = self.type_annotations.as_ref()
+                    .and_then(|ann| ann.get_call_site(expr.span.start))
+                {
+                    // This is a generic struct instantiation - use the mangled name
+                    self.mangle_name(&base_struct_name, type_args)
+                } else {
+                    base_struct_name
+                };
 
                 // Look up struct type to get field order
                 let field_order = self.struct_types.get(&struct_name)
@@ -2294,14 +2472,39 @@ impl Compiler {
             let first = self.resolve_type_alias(&raw_first);
             let second = path.segments[1].ident.name.to_string();
 
-            // First check if it's an enum variant
-            if let Some(enum_info) = self.enum_types.get(&first) {
-                if let Some(&(variant_idx, field_count)) = enum_info.variants.get(&second) {
+            // Check if it's an enum variant (may need on-demand monomorphization for generics)
+            let enum_info = if let Some(info) = self.enum_types.get(&first).cloned() {
+                Some((first.clone(), info))
+            } else if self.generic_defs.contains_key(&first) {
+                // Generic enum - check for instantiation info and monomorphize
+                let call_site_info = self.type_annotations.as_ref()
+                    .and_then(|ann| ann.get_call_site(path.segments[0].ident.span.start))
+                    .map(|(_, type_args)| type_args.clone());
+
+                if let Some(type_args) = call_site_info {
+                    let mangled_name = self.mangle_name(&first, &type_args);
+                    if !self.enum_types.contains_key(&mangled_name) {
+                        if let Some(def) = self.generic_defs.get(&first).cloned() {
+                            if let GenericDefKind::Enum(e) = &def.kind {
+                                self.monomorphize_enum(&first, &e, &def.type_params, &type_args)?;
+                            }
+                        }
+                    }
+                    self.enum_types.get(&mangled_name).map(|info| (mangled_name, info.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some((enum_name, info)) = enum_info {
+                if let Some(&(variant_idx, field_count)) = info.variants.get(&second) {
                     if field_count == 0 {
                         // Unit variant - create directly
                         let enum_info_const = Constant::EnumInfo {
-                            name: first.clone(),
-                            variants: enum_info.variants_ordered.clone(),
+                            name: enum_name,
+                            variants: info.variants_ordered.clone(),
                         };
                         let enum_info_idx = self.add_constant(enum_info_const)?;
                         self.emit(OpCode::Enum);

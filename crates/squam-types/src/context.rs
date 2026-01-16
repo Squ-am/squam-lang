@@ -273,6 +273,55 @@ impl TypeContext {
                     .collect();
                 self.applied(new_base, new_args)
             }
+            Ty::Struct(s) => {
+                // Substitute field types
+                let new_fields: Vec<_> = s.fields.iter().map(|f| {
+                    crate::types::StructField {
+                        name: f.name.clone(),
+                        ty: self.substitute(f.ty, substitutions),
+                        is_public: f.is_public,
+                    }
+                }).collect();
+                // Create a new struct type with substituted fields
+                // Keep generic_params empty since this is a concrete instantiation
+                self.intern(Ty::Struct(crate::types::StructType {
+                    name: s.name.clone(),
+                    fields: new_fields,
+                    generic_params: Vec::new(),
+                }))
+            }
+            Ty::Enum(e) => {
+                // Substitute variant types
+                let new_variants: Vec<_> = e.variants.iter().map(|v| {
+                    let new_fields = match &v.fields {
+                        crate::types::VariantFields::Unit => crate::types::VariantFields::Unit,
+                        crate::types::VariantFields::Tuple(types) => {
+                            crate::types::VariantFields::Tuple(
+                                types.iter().map(|&t| self.substitute(t, substitutions)).collect()
+                            )
+                        }
+                        crate::types::VariantFields::Struct(fields) => {
+                            crate::types::VariantFields::Struct(
+                                fields.iter().map(|f| crate::types::StructField {
+                                    name: f.name.clone(),
+                                    ty: self.substitute(f.ty, substitutions),
+                                    is_public: f.is_public,
+                                }).collect()
+                            )
+                        }
+                    };
+                    crate::types::EnumVariant {
+                        name: v.name.clone(),
+                        fields: new_fields,
+                    }
+                }).collect();
+                // Create a new enum type with substituted variants
+                self.intern(Ty::Enum(crate::types::EnumType {
+                    name: e.name.clone(),
+                    variants: new_variants,
+                    generic_params: Vec::new(),
+                }))
+            }
             // Primitives and other non-generic types stay the same
             _ => ty,
         }

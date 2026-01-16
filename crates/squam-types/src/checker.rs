@@ -138,6 +138,21 @@ pub struct TypeChecker {
     current_return_type: Option<TypeId>,
     /// Type annotations for expressions (for compiler optimization)
     annotations: TypeAnnotations,
+    /// Pending generic instantiations with inferred type args (finalized at end of checking)
+    pending_instantiations: Vec<PendingInstantiation>,
+}
+
+/// A generic instantiation with inferred type args that needs to be finalized.
+#[derive(Debug, Clone)]
+struct PendingInstantiation {
+    /// The name of the generic item (function or struct)
+    name: String,
+    /// What kind of generic this is
+    kind: InstantiationKind,
+    /// The inference variables used for type parameters
+    infer_args: Vec<TypeId>,
+    /// The span where this instantiation was used
+    span: u32,
 }
 
 impl TypeChecker {
@@ -153,6 +168,7 @@ impl TypeChecker {
             errors: Vec::new(),
             current_return_type: None,
             annotations: TypeAnnotations::new(),
+            pending_instantiations: Vec::new(),
         };
 
         // Register built-in types
@@ -281,6 +297,97 @@ impl TypeChecker {
         self.register_extern_function("assert", vec![TypeId::BOOL], TypeId::UNIT);
         self.register_extern_function("assert_eq", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
         self.register_extern_function("panic", vec![TypeId::STRING], TypeId::NEVER);
+
+        // Built-in generic enums (Option, Result)
+        self.register_builtin_enums();
+    }
+
+    /// Register built-in generic enums: Option<T> and Result<T, E>
+    fn register_builtin_enums(&mut self) {
+        // Option<T> = Some(T) | None
+        {
+            // Create a fresh generic var for T
+            let t_var = self.ctx.fresh_generic();
+            let t_ty = self.ctx.generic(t_var);
+
+            let variants = vec![
+                crate::types::EnumVariant {
+                    name: "Some".into(),
+                    fields: crate::types::VariantFields::Tuple(vec![t_ty]),
+                },
+                crate::types::EnumVariant {
+                    name: "None".into(),
+                    fields: crate::types::VariantFields::Unit,
+                },
+            ];
+
+            let generic_params = vec![crate::types::GenericParam {
+                name: "T".into(),
+                var: t_var,
+                bounds: Vec::new(),
+            }];
+
+            let ty = self.ctx.intern(Ty::Enum(crate::types::EnumType {
+                name: "Option".into(),
+                variants,
+                generic_params,
+            }));
+
+            let _ = self.types.define(TypeDef {
+                name: "Option".into(),
+                ty,
+                span: Span::dummy(),
+                kind: TypeDefKind::Enum,
+                is_public: true,
+            });
+        }
+
+        // Result<T, E> = Ok(T) | Err(E)
+        {
+            // Create fresh generic vars for T and E
+            let t_var = self.ctx.fresh_generic();
+            let t_ty = self.ctx.generic(t_var);
+            let e_var = self.ctx.fresh_generic();
+            let e_ty = self.ctx.generic(e_var);
+
+            let variants = vec![
+                crate::types::EnumVariant {
+                    name: "Ok".into(),
+                    fields: crate::types::VariantFields::Tuple(vec![t_ty]),
+                },
+                crate::types::EnumVariant {
+                    name: "Err".into(),
+                    fields: crate::types::VariantFields::Tuple(vec![e_ty]),
+                },
+            ];
+
+            let generic_params = vec![
+                crate::types::GenericParam {
+                    name: "T".into(),
+                    var: t_var,
+                    bounds: Vec::new(),
+                },
+                crate::types::GenericParam {
+                    name: "E".into(),
+                    var: e_var,
+                    bounds: Vec::new(),
+                },
+            ];
+
+            let ty = self.ctx.intern(Ty::Enum(crate::types::EnumType {
+                name: "Result".into(),
+                variants,
+                generic_params,
+            }));
+
+            let _ = self.types.define(TypeDef {
+                name: "Result".into(),
+                ty,
+                span: Span::dummy(),
+                kind: TypeDefKind::Enum,
+                is_public: true,
+            });
+        }
     }
 
     /// Get accumulated errors.
@@ -401,6 +508,48 @@ impl TypeChecker {
                 true
             }
 
+            // Enum unification - match by name and unify variant field types
+            (Ty::Enum(ea), Ty::Enum(eb)) if ea.name == eb.name && ea.variants.len() == eb.variants.len() => {
+                for (va, vb) in ea.variants.iter().zip(eb.variants.iter()) {
+                    if va.name != vb.name {
+                        return false;
+                    }
+                    match (&va.fields, &vb.fields) {
+                        (crate::types::VariantFields::Unit, crate::types::VariantFields::Unit) => {}
+                        (crate::types::VariantFields::Tuple(fa), crate::types::VariantFields::Tuple(fb))
+                            if fa.len() == fb.len() =>
+                        {
+                            for (&f1, &f2) in fa.iter().zip(fb.iter()) {
+                                if !self.unify(f1, f2, span) {
+                                    return false;
+                                }
+                            }
+                        }
+                        (crate::types::VariantFields::Struct(fa), crate::types::VariantFields::Struct(fb))
+                            if fa.len() == fb.len() =>
+                        {
+                            for (f1, f2) in fa.iter().zip(fb.iter()) {
+                                if f1.name != f2.name || !self.unify(f1.ty, f2.ty, span) {
+                                    return false;
+                                }
+                            }
+                        }
+                        _ => return false,
+                    }
+                }
+                true
+            }
+
+            // Struct unification - match by name and unify field types
+            (Ty::Struct(sa), Ty::Struct(sb)) if sa.name == sb.name && sa.fields.len() == sb.fields.len() => {
+                for (fa, fb) in sa.fields.iter().zip(sb.fields.iter()) {
+                    if fa.name != fb.name || !self.unify(fa.ty, fb.ty, span) {
+                        return false;
+                    }
+                }
+                true
+            }
+
             _ => {
                 self.error(TypeError::Mismatch {
                     expected: self.ctx.display(a),
@@ -507,6 +656,85 @@ impl TypeChecker {
         // Second pass: check all items
         for item in &module.items {
             self.check_item(item);
+        }
+
+        // Third pass: finalize pending generic instantiations
+        self.finalize_pending_instantiations();
+    }
+
+    /// Finalize pending generic instantiations after type inference.
+    /// This resolves inference variables to concrete types and records the instantiations.
+    fn finalize_pending_instantiations(&mut self) {
+        let pending = std::mem::take(&mut self.pending_instantiations);
+        for inst in pending {
+            // Resolve each inference variable to its concrete type
+            let mut type_arg_names = Vec::new();
+
+            for &infer_ty in &inst.infer_args {
+                let resolved = self.resolve(infer_ty);
+                match self.ctx.get(resolved) {
+                    Ty::Infer(_) => {
+                        // Unresolved inference variable - default to () for monomorphization
+                        // This allows code like `Result::Ok(100)` where E is never constrained
+                        type_arg_names.push("unit".to_string());
+                    }
+                    _ => {
+                        // Get the type name for monomorphization
+                        type_arg_names.push(self.type_name_for_monomorphization(resolved));
+                    }
+                }
+            }
+
+            if !type_arg_names.is_empty() {
+                self.annotations.record_instantiation(
+                    inst.name,
+                    inst.kind,
+                    type_arg_names,
+                    inst.span,
+                );
+            }
+        }
+    }
+
+    /// Get a type name suitable for monomorphization (name mangling).
+    fn type_name_for_monomorphization(&self, ty: TypeId) -> String {
+        let resolved = self.resolve(ty);
+        match self.ctx.get(resolved) {
+            // Integer types
+            Ty::I8 => "i8".to_string(),
+            Ty::I16 => "i16".to_string(),
+            Ty::I32 => "i32".to_string(),
+            Ty::I64 => "i64".to_string(),
+            Ty::I128 => "i128".to_string(),
+            Ty::Isize => "isize".to_string(),
+            Ty::U8 => "u8".to_string(),
+            Ty::U16 => "u16".to_string(),
+            Ty::U32 => "u32".to_string(),
+            Ty::U64 => "u64".to_string(),
+            Ty::U128 => "u128".to_string(),
+            Ty::Usize => "usize".to_string(),
+            // Float types
+            Ty::F32 => "f32".to_string(),
+            Ty::F64 => "f64".to_string(),
+            // Other primitives
+            Ty::Bool => "bool".to_string(),
+            Ty::String => "String".to_string(),
+            Ty::Str => "str".to_string(),
+            Ty::Char => "char".to_string(),
+            Ty::Unit => "unit".to_string(),
+            // User-defined types
+            Ty::Struct(s) => s.name.to_string(),
+            Ty::Enum(e) => e.name.to_string(),
+            // Compound types
+            Ty::Array { element, .. } => format!("[{}]", self.type_name_for_monomorphization(*element)),
+            Ty::Tuple(elems) => {
+                let names: Vec<_> = elems.iter()
+                    .map(|&e| self.type_name_for_monomorphization(e))
+                    .collect();
+                format!("({})", names.join(","))
+            }
+            // Fallback to display for other types
+            _ => self.ctx.display(resolved),
         }
     }
 
@@ -1758,28 +1986,82 @@ impl TypeChecker {
                     let segment = &path.segments[0];
                     let name = &segment.ident.name;
 
-                    // Extract type names for monomorphization (before borrowing self.types)
-                    let explicit_type_arg_names: Option<Vec<String>> = segment.args.as_ref().map(|args| {
-                        args.args.iter().filter_map(|arg| {
-                            match arg {
-                                GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
-                                GenericArg::Const(_) => None,
-                            }
-                        }).collect()
+                    // Look up the type and get generic params info
+                    let type_info = self.types.lookup(name).map(|def| {
+                        let generic_params = match self.ctx.get(def.ty).clone() {
+                            Ty::Struct(s) => s.generic_params.clone(),
+                            _ => Vec::new(),
+                        };
+                        (def.ty, generic_params)
                     });
 
                     let name_str = name.to_string();
-                    if let Some(def) = self.types.lookup(name) {
-                        // Record generic struct instantiation if explicit type args provided
-                        if let Some(type_arg_names) = explicit_type_arg_names {
-                            self.annotations.record_instantiation(
-                                name_str,
-                                InstantiationKind::Struct,
-                                type_arg_names,
-                                expr.span.start,
-                            );
+                    if let Some((base_ty, generic_params)) = type_info {
+                        // Check for explicit type arguments
+                        if let Some(args) = &segment.args {
+                            // Resolve type args to TypeIds for substitution
+                            let type_args: Vec<TypeId> = args.args.iter().map(|arg| {
+                                match arg {
+                                    GenericArg::Type(t) => self.resolve_ast_type(t),
+                                    GenericArg::Const(_) => self.ctx.fresh_infer(),
+                                }
+                            }).collect();
+
+                            // Extract type names for monomorphization
+                            let type_arg_names: Vec<String> = args.args.iter().filter_map(|arg| {
+                                match arg {
+                                    GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
+                                    GenericArg::Const(_) => None,
+                                }
+                            }).collect();
+
+                            // Record instantiation for monomorphization
+                            if !type_arg_names.is_empty() {
+                                self.annotations.record_instantiation(
+                                    name_str,
+                                    InstantiationKind::Struct,
+                                    type_arg_names,
+                                    expr.span.start,
+                                );
+                            }
+
+                            // Create substitutions and apply them
+                            if !generic_params.is_empty() {
+                                let substitutions: Vec<(GenericVar, TypeId)> = generic_params
+                                    .iter()
+                                    .zip(type_args.iter())
+                                    .map(|(gp, &arg)| (gp.var, arg))
+                                    .collect();
+
+                                self.ctx.substitute(base_ty, &substitutions)
+                            } else {
+                                base_ty
+                            }
+                        } else if !generic_params.is_empty() {
+                            // No explicit type args but struct is generic - use fresh inference vars
+                            let infer_args: Vec<TypeId> = generic_params
+                                .iter()
+                                .map(|_| self.ctx.fresh_infer())
+                                .collect();
+
+                            let substitutions: Vec<(GenericVar, TypeId)> = generic_params
+                                .iter()
+                                .zip(infer_args.iter())
+                                .map(|(gp, &arg)| (gp.var, arg))
+                                .collect();
+
+                            // Record pending instantiation to be resolved after type inference
+                            self.pending_instantiations.push(PendingInstantiation {
+                                name: name_str,
+                                kind: InstantiationKind::Struct,
+                                infer_args,
+                                span: expr.span.start,
+                            });
+
+                            self.ctx.substitute(base_ty, &substitutions)
+                        } else {
+                            base_ty
                         }
-                        def.ty
                     } else {
                         self.error(TypeError::UndefinedType {
                             name: name_str,
@@ -1908,6 +2190,14 @@ impl TypeChecker {
                             .map(|_| self.ctx.fresh_infer())
                             .collect();
 
+                        // Store pending instantiation to be finalized after type inference
+                        self.pending_instantiations.push(PendingInstantiation {
+                            name: name.to_string(),
+                            kind: InstantiationKind::Function,
+                            infer_args: infer_args.clone(),
+                            span: span.start,
+                        });
+
                         let substitutions: Vec<(GenericVar, TypeId)> = sig.generic_params
                             .iter()
                             .zip(infer_args.iter())
@@ -1950,6 +2240,67 @@ impl TypeChecker {
                 // Also try lookup_method (for methods registered via impl blocks)
                 if let Some((method_sig, _)) = self.traits.lookup_method(type_id, method_name) {
                     return self.ctx.function(method_sig.params.clone(), method_sig.return_type);
+                }
+
+                // Check if this is an enum variant constructor
+                if let Ty::Enum(enum_type) = self.ctx.get(type_id).clone() {
+                    if let Some(variant) = enum_type.variants.iter().find(|v| v.name.as_ref() == method_name.as_ref()) {
+                        // Check if this is a unit variant (no fields) - return enum type directly
+                        let is_unit_variant = matches!(&variant.fields, crate::types::VariantFields::Unit);
+
+                        // Get raw param types from variant fields
+                        let raw_param_types: Vec<TypeId> = match &variant.fields {
+                            crate::types::VariantFields::Unit => Vec::new(),
+                            crate::types::VariantFields::Tuple(types) => types.clone(),
+                            crate::types::VariantFields::Struct(fields) => {
+                                fields.iter().map(|f| f.ty).collect()
+                            }
+                        };
+
+                        // Handle generic enum - substitute with fresh inference vars
+                        if !enum_type.generic_params.is_empty() {
+                            let infer_args: Vec<TypeId> = enum_type.generic_params
+                                .iter()
+                                .map(|_| self.ctx.fresh_infer())
+                                .collect();
+
+                            let substitutions: Vec<(GenericVar, TypeId)> = enum_type.generic_params
+                                .iter()
+                                .zip(infer_args.iter())
+                                .map(|(gp, &arg)| (gp.var, arg))
+                                .collect();
+
+                            // Substitute return type (the enum type itself)
+                            let return_type = self.ctx.substitute(type_id, &substitutions);
+
+                            // Record pending instantiation for monomorphization
+                            self.pending_instantiations.push(PendingInstantiation {
+                                name: type_name.to_string(),
+                                kind: InstantiationKind::Enum,
+                                infer_args,
+                                span: span.start,
+                            });
+
+                            if is_unit_variant {
+                                // Unit variant - return the enum value type directly
+                                return return_type;
+                            } else {
+                                // Tuple/struct variant - return a function type
+                                let param_types: Vec<TypeId> = raw_param_types
+                                    .iter()
+                                    .map(|&t| self.ctx.substitute(t, &substitutions))
+                                    .collect();
+                                return self.ctx.function(param_types, return_type);
+                            }
+                        } else {
+                            // Non-generic enum
+                            if is_unit_variant {
+                                return type_id;
+                            } else {
+                                return self.ctx.function(raw_param_types, type_id);
+                            }
+                        }
+                    }
                 }
 
                 self.error(TypeError::Custom(

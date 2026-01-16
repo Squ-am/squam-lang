@@ -1598,7 +1598,10 @@ impl VM {
                     let matches = match &scrutinee {
                         Value::Enum(e) => {
                             // If enum_name is empty, match any enum with this variant
-                            let enum_matches = enum_name.is_empty() || e.enum_name == enum_name;
+                            // Also handle monomorphized generic enums: "Option" matches "Option$i64"
+                            let enum_matches = enum_name.is_empty()
+                                || e.enum_name == enum_name
+                                || e.enum_name.starts_with(&format!("{}$", enum_name));
                             let variant_matches = e.variant == variant_name;
                             enum_matches && variant_matches
                         }

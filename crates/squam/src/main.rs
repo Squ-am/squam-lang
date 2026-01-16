@@ -277,8 +277,12 @@ fn run_file(path: &PathBuf) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // Get type annotations for the compiler (needed for generics monomorphization)
+    let annotations = checker.take_annotations();
+
     // Compile
     let mut compiler = Compiler::new();
+    compiler.set_type_annotations(annotations);
     let proto = match compiler.compile_module(&module) {
         Ok(p) => p,
         Err(e) => {
@@ -342,8 +346,12 @@ fn check_file(path: &PathBuf) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // Get type annotations for the compiler (needed for generics monomorphization)
+    let annotations = checker.take_annotations();
+
     // Compile (checks for compile-time errors)
     let mut compiler = Compiler::new();
+    compiler.set_type_annotations(annotations);
     if let Err(e) = compiler.compile_module(&module) {
         report_compile_error(&filename, &source, &e);
         return ExitCode::FAILURE;
@@ -384,8 +392,12 @@ fn disasm_file(path: &PathBuf) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // Get type annotations for the compiler (needed for generics monomorphization)
+    let annotations = checker.take_annotations();
+
     // Compile
     let mut compiler = Compiler::new();
+    compiler.set_type_annotations(annotations);
     let proto = match compiler.compile_module(&module) {
         Ok(p) => p,
         Err(e) => {
@@ -528,8 +540,12 @@ fn eval_repl_input(vm: &mut VM, input: &str) {
         return;
     }
 
+    // Get type annotations for the compiler (needed for generics monomorphization)
+    let annotations = checker.take_annotations();
+
     // Compile
     let mut compiler = Compiler::new();
+    compiler.set_type_annotations(annotations);
     let proto = match compiler.compile_module(&module) {
         Ok(p) => p,
         Err(e) => {

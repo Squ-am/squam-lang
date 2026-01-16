@@ -39,8 +39,11 @@ pub struct TypeAnnotations {
     pub expr_types: FxHashMap<u32, TypeId>,
     /// Map from struct name to ordered field names (for indexed field access)
     pub struct_layouts: FxHashMap<String, Vec<String>>,
-    /// Generic instantiations discovered during type checking
+    /// Generic instantiations discovered during type checking (deduplicated for monomorphization)
     pub instantiations: Vec<GenericInstantiation>,
+    /// Map from span to generic call site info (for call site resolution)
+    /// Maps span -> (generic_name, type_args)
+    call_sites: FxHashMap<u32, (String, Vec<String>)>,
 }
 
 impl TypeAnnotations {
@@ -65,7 +68,10 @@ impl TypeAnnotations {
 
     /// Record a generic instantiation
     pub fn record_instantiation(&mut self, name: String, kind: InstantiationKind, type_args: Vec<String>, span: u32) {
-        // Avoid duplicates
+        // Always record call site for call site resolution
+        self.call_sites.insert(span, (name.clone(), type_args.clone()));
+
+        // Deduplicate for monomorphization (only need one instantiation per unique name+kind+type_args)
         let exists = self.instantiations.iter().any(|inst| {
             inst.name == name && inst.kind == kind && inst.type_args == type_args
         });
@@ -77,6 +83,12 @@ impl TypeAnnotations {
                 span,
             });
         }
+    }
+
+    /// Look up generic call site info at a specific span (for call site resolution)
+    /// Returns (generic_name, type_args) if this span is a call to a generic
+    pub fn get_call_site(&self, span: u32) -> Option<(&String, &Vec<String>)> {
+        self.call_sites.get(&span).map(|(n, t)| (n, t))
     }
 
     /// Check if the type is a known integer type
