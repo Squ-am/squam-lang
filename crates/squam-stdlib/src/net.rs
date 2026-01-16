@@ -1,7 +1,7 @@
 use squam_vm::{Value, VM};
 use squam_vm::value::StructInstance;
 use std::collections::HashMap;
-use std::io::{Read, Write, BufRead, BufReader};
+use std::io::{Read, Write};
 use std::net::{TcpStream, TcpListener, ToSocketAddrs, Shutdown};
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -172,17 +172,30 @@ pub fn register(vm: &mut VM) {
     });
 
     // tcp_read_line(stream: handle) -> string
+    // Read byte by byte to avoid BufReader losing data
     vm.define_native("tcp_read_line", 1, |args| {
         let id = get_handle_id(&args[0], "TcpStream")?;
         let mut registry = STREAM_REGISTRY.lock().unwrap();
         match registry.get_mut(id) {
             Some(stream) => {
-                let mut reader = BufReader::new(stream);
-                let mut line = String::new();
-                match reader.read_line(&mut line) {
-                    Ok(_) => Ok(Value::String(Rc::new(line.trim_end().to_string()))),
-                    Err(e) => Err(format!("tcp_read_line failed: {}", e)),
+                let mut line = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    match stream.read(&mut byte) {
+                        Ok(0) => break, // EOF
+                        Ok(_) => {
+                            if byte[0] == b'\n' {
+                                break;
+                            }
+                            if byte[0] != b'\r' {
+                                line.push(byte[0]);
+                            }
+                        }
+                        Err(e) => return Err(format!("tcp_read_line failed: {}", e)),
+                    }
                 }
+                let s = String::from_utf8_lossy(&line).to_string();
+                Ok(Value::String(Rc::new(s)))
             }
             None => Err("tcp_read_line: invalid stream handle".to_string()),
         }

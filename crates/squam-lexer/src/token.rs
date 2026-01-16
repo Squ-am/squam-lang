@@ -22,6 +22,10 @@ pub enum TokenKind {
     #[regex(r#""([^"\\]|\\.)*""#)]
     StringLiteral,
 
+    /// Format string literal: f"hello {name}"
+    #[regex(r#"f"([^"\\]|\\.)*""#)]
+    FStringLiteral,
+
     /// Character literal: 'a', '\n', '\x41'
     #[regex(r"'([^'\\]|\\.)'")]
     CharLiteral,
@@ -262,6 +266,7 @@ impl TokenKind {
             TokenKind::IntLiteral
                 | TokenKind::FloatLiteral
                 | TokenKind::StringLiteral
+                | TokenKind::FStringLiteral
                 | TokenKind::CharLiteral
                 | TokenKind::True
                 | TokenKind::False
@@ -275,6 +280,7 @@ impl TokenKind {
             TokenKind::IntLiteral
                 | TokenKind::FloatLiteral
                 | TokenKind::StringLiteral
+                | TokenKind::FStringLiteral
                 | TokenKind::CharLiteral
                 | TokenKind::True
                 | TokenKind::False
@@ -307,6 +313,7 @@ impl TokenKind {
             TokenKind::IntLiteral => "integer",
             TokenKind::FloatLiteral => "float",
             TokenKind::StringLiteral => "string",
+            TokenKind::FStringLiteral => "format string",
             TokenKind::CharLiteral => "character",
             TokenKind::True => "true",
             TokenKind::False => "false",

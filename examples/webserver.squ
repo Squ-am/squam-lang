@@ -1,0 +1,31 @@
+fn main() -> i64 {
+    let host = "127.0.0.1";
+    let port = 8080;
+
+    println(f"Starting server on http://{host}:{port}");
+    let listener = tcp_listen(host, port);
+
+    while true {
+        let client = tcp_accept(listener);
+        let peer = tcp_peer_addr(client);
+
+        let request_line = tcp_read_line(client);
+        while str_len(tcp_read_line(client)) > 0 {}
+
+        let body = "<h1>Hello from Squam Web Server!</h1>";
+        let response = f"HTTP/1.1 200 OK\r
+Content-Type: text/html\r
+Content-Length: {str_len(body)}\r
+Connection: close\r
+\r
+{body}";
+
+        tcp_write(client, response);
+        tcp_flush(client);
+        tcp_close(client);
+
+        println(f"[{peer}] {request_line}");
+    }
+
+    0
+}

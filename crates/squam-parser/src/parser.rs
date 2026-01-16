@@ -84,6 +84,11 @@ impl<'src> Parser<'src> {
         kinds.contains(&self.current.kind)
     }
 
+    /// Check if the next token (after current) is of the given kind.
+    fn peek_is(&mut self, kind: TokenKind) -> bool {
+        self.lexer.peek().kind == kind
+    }
+
     /// Consume the current token if it matches, returning true.
     fn consume(&mut self, kind: TokenKind) -> bool {
         if self.check(kind) {
@@ -521,12 +526,21 @@ impl<'src> Parser<'src> {
             let name = self.parse_identifier()?;
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;
+
+            // Parse optional default value
+            let default = if self.consume(TokenKind::Eq) {
+                Some(Box::new(self.parse_expression()?))
+            } else {
+                None
+            };
+
             let span = start.merge(ty.span);
 
             fields.push(StructField {
                 visibility,
                 name,
                 ty,
+                default,
                 span,
             });
 
@@ -1492,6 +1506,15 @@ impl<'src> Parser<'src> {
                     span: token.span,
                 })
             }
+            TokenKind::FStringLiteral => {
+                let token = self.advance();
+                let s = self.slice(token.span);
+                let parts = self.parse_format_string(s, token.span)?;
+                Ok(Expr {
+                    kind: ExprKind::FormatString { parts },
+                    span: token.span,
+                })
+            }
             TokenKind::CharLiteral => {
                 let token = self.advance();
                 let s = self.slice(token.span);
@@ -1983,11 +2006,25 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse call arguments.
-    fn parse_call_args(&mut self) -> Result<Vec<Expr>, ParseError> {
+    fn parse_call_args(&mut self) -> Result<Vec<CallArg>, ParseError> {
         let mut args = Vec::new();
 
         while !self.check(TokenKind::RParen) && !self.check(TokenKind::Eof) {
-            args.push(self.parse_expression()?);
+            let start = self.current.span;
+
+            // Check for named argument: `name: value`
+            let (name, value) = if self.check(TokenKind::Identifier) && self.peek_is(TokenKind::Colon) {
+                let ident = self.parse_identifier()?;
+                self.expect(TokenKind::Colon)?;
+                let value = self.parse_expression()?;
+                (Some(ident), value)
+            } else {
+                (None, self.parse_expression()?)
+            };
+
+            let span = start.merge(value.span);
+            args.push(CallArg { name, value, span });
+
             if !self.consume(TokenKind::Comma) {
                 break;
             }
@@ -2634,6 +2671,106 @@ impl<'src> Parser<'src> {
             span: start.merge(end.span),
         })
     }
+
+    /// Parse a format string like `f"Hello {name}!"` into parts.
+    fn parse_format_string(&mut self, s: &str, span: Span) -> Result<Vec<FormatPart>, ParseError> {
+        // Strip the f" prefix and " suffix
+        let content = &s[2..s.len() - 1];
+        let mut parts = Vec::new();
+        let mut current_literal = String::new();
+        let mut chars = content.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                // Handle escape sequences
+                if let Some(&next) = chars.peek() {
+                    match next {
+                        '{' | '}' => {
+                            // Escaped brace - add literal brace
+                            current_literal.push(chars.next().unwrap());
+                        }
+                        'n' => { chars.next(); current_literal.push('\n'); }
+                        'r' => { chars.next(); current_literal.push('\r'); }
+                        't' => { chars.next(); current_literal.push('\t'); }
+                        '\\' => { chars.next(); current_literal.push('\\'); }
+                        '"' => { chars.next(); current_literal.push('"'); }
+                        '0' => { chars.next(); current_literal.push('\0'); }
+                        _ => {
+                            // Unknown escape, keep as-is
+                            current_literal.push(c);
+                        }
+                    }
+                } else {
+                    current_literal.push(c);
+                }
+            } else if c == '{' {
+                // Start of interpolation
+                // First, save any accumulated literal
+                if !current_literal.is_empty() {
+                    parts.push(FormatPart::Literal(std::mem::take(&mut current_literal)));
+                }
+
+                // Collect the expression content until matching '}'
+                let mut expr_content = String::new();
+                let mut brace_depth = 1;
+
+                while let Some(c) = chars.next() {
+                    if c == '{' {
+                        brace_depth += 1;
+                        expr_content.push(c);
+                    } else if c == '}' {
+                        brace_depth -= 1;
+                        if brace_depth == 0 {
+                            break;
+                        }
+                        expr_content.push(c);
+                    } else if c == '\\' && chars.peek() == Some(&'}') {
+                        // Escaped closing brace inside expression
+                        expr_content.push(chars.next().unwrap());
+                    } else {
+                        expr_content.push(c);
+                    }
+                }
+
+                if brace_depth != 0 {
+                    return Err(ParseError::Custom {
+                        message: "unclosed '{' in format string".to_string(),
+                        span,
+                    });
+                }
+
+                // Parse the expression
+                let expr = parse_expr_string(&expr_content).map_err(|e| {
+                    ParseError::Custom {
+                        message: format!("error parsing format string expression: {}", e),
+                        span,
+                    }
+                })?;
+
+                parts.push(FormatPart::Expr(Box::new(expr)));
+            } else if c == '}' {
+                // Unmatched closing brace - error
+                return Err(ParseError::Custom {
+                    message: "unmatched '}' in format string (use '\\}' to escape)".to_string(),
+                    span,
+                });
+            } else {
+                current_literal.push(c);
+            }
+        }
+
+        // Don't forget any trailing literal
+        if !current_literal.is_empty() {
+            parts.push(FormatPart::Literal(current_literal));
+        }
+
+        // If no parts, add empty string
+        if parts.is_empty() {
+            parts.push(FormatPart::Literal(String::new()));
+        }
+
+        Ok(parts)
+    }
 }
 
 impl From<u8> for Precedence {
@@ -2658,6 +2795,12 @@ impl From<u8> for Precedence {
             _ => Precedence::Lowest,
         }
     }
+}
+
+/// Parse an expression from a string (helper for format string interpolation).
+fn parse_expr_string(s: &str) -> Result<Expr, ParseError> {
+    let mut parser = Parser::new(s, 0);
+    parser.parse_expression()
 }
 
 #[cfg(test)]

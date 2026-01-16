@@ -235,30 +235,31 @@ impl TypeChecker {
         self.register_extern_function("debug", vec![TypeId::ANY], TypeId::STRING);
         self.register_extern_function("debug_print", vec![TypeId::ANY], TypeId::UNIT);
 
-        // Array/string operations
-        self.register_extern_function("len", vec![TypeId::ANY], TypeId::I64);
-        self.register_extern_function("sum", vec![TypeId::ANY], TypeId::I64);
-        self.register_extern_function("push", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
-        self.register_extern_function("pop", vec![TypeId::ANY], TypeId::ANY);
-        self.register_extern_function("first", vec![TypeId::ANY], TypeId::ANY);
-        self.register_extern_function("last", vec![TypeId::ANY], TypeId::ANY);
-        self.register_extern_function("reverse", vec![TypeId::ANY], TypeId::ANY);
-        self.register_extern_function("sort", vec![TypeId::ANY], TypeId::ANY);
+        // Array operations
+        self.register_extern_function("arr_len", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("arr_sum", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("arr_push", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("arr_pop", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_first", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_last", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_get", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("arr_reverse", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_sort", vec![TypeId::ANY], TypeId::ANY);
 
         // String operations
         self.register_extern_function("str_len", vec![TypeId::STRING], TypeId::I64);
         self.register_extern_function("to_string", vec![TypeId::ANY], TypeId::STRING);
-        self.register_extern_function("to_uppercase", vec![TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("to_lowercase", vec![TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("trim", vec![TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("split", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
-        self.register_extern_function("join", vec![TypeId::ANY, TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("contains", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
-        self.register_extern_function("starts_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
-        self.register_extern_function("ends_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
-        self.register_extern_function("replace", vec![TypeId::STRING, TypeId::STRING, TypeId::STRING], TypeId::STRING);
-        self.register_extern_function("substring", vec![TypeId::STRING, TypeId::I64, TypeId::I64], TypeId::STRING);
-        self.register_extern_function("char_at", vec![TypeId::STRING, TypeId::I64], TypeId::STRING);
+        self.register_extern_function("str_to_upper", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("str_to_lower", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("str_trim", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("str_split", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("str_join", vec![TypeId::ANY, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("str_contains", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("str_starts_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("str_ends_with", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("str_replace", vec![TypeId::STRING, TypeId::STRING, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("str_substring", vec![TypeId::STRING, TypeId::I64, TypeId::I64], TypeId::STRING);
+        self.register_extern_function("str_char_at", vec![TypeId::STRING, TypeId::I64], TypeId::STRING);
         self.register_extern_function("parse_int", vec![TypeId::STRING], TypeId::ANY);
         self.register_extern_function("parse_float", vec![TypeId::STRING], TypeId::ANY);
 
@@ -297,6 +298,78 @@ impl TypeChecker {
         self.register_extern_function("assert", vec![TypeId::BOOL], TypeId::UNIT);
         self.register_extern_function("assert_eq", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
         self.register_extern_function("panic", vec![TypeId::STRING], TypeId::NEVER);
+
+        // Iterator operations (higher-order functions that take closures)
+        self.register_extern_function("map", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("filter", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("reduce", vec![TypeId::ANY, TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("foreach", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("find", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("find_index", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("any_with", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("all_with", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("count_with", vec![TypeId::ANY, TypeId::ANY], TypeId::I64);
+        self.register_extern_function("partition", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("sort_by", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("group_by", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("flat_map", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("take_while", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("skip_while", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("enumerate", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("zip", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("unzip", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("flatten", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("take", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("skip", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("any", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("all", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("count", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("product", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("min_of", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("max_of", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("sorted", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("reversed", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("unique", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("chunks", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("windows", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+
+        // TCP networking
+        self.register_extern_function("tcp_connect", vec![TypeId::STRING, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("tcp_connect_timeout", vec![TypeId::STRING, TypeId::I64, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("tcp_listen", vec![TypeId::STRING, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("tcp_accept", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("tcp_read", vec![TypeId::ANY, TypeId::I64], TypeId::STRING);
+        self.register_extern_function("tcp_read_line", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("tcp_write", vec![TypeId::ANY, TypeId::STRING], TypeId::I64);
+        self.register_extern_function("tcp_write_line", vec![TypeId::ANY, TypeId::STRING], TypeId::I64);
+        self.register_extern_function("tcp_flush", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("tcp_close", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("tcp_close_listener", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("tcp_set_timeout", vec![TypeId::ANY, TypeId::I64, TypeId::I64], TypeId::UNIT);
+        self.register_extern_function("tcp_peer_addr", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("tcp_local_addr", vec![TypeId::ANY], TypeId::STRING);
+
+        // HTTP client
+        self.register_extern_function("http_get", vec![TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("http_get_text", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("http_post", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("http_post_json", vec![TypeId::STRING, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("http_put", vec![TypeId::STRING, TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("http_delete", vec![TypeId::STRING], TypeId::ANY);
+
+        // JSON
+        self.register_extern_function("json_parse", vec![TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("json_stringify", vec![TypeId::ANY], TypeId::STRING);
+
+        // Time functions
+        self.register_extern_function("time_now", vec![], TypeId::I64);
+        self.register_extern_function("time_now_ms", vec![], TypeId::I64);
+        self.register_extern_function("time_now_ns", vec![], TypeId::I64);
+        self.register_extern_function("sleep", vec![TypeId::I64], TypeId::UNIT);
+        self.register_extern_function("sleep_secs", vec![TypeId::F64], TypeId::UNIT);
+        self.register_extern_function("format_timestamp", vec![TypeId::I64, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("timer_start", vec![], TypeId::I64);
+        self.register_extern_function("timer_elapsed_ms", vec![TypeId::I64], TypeId::I64);
 
         // Built-in generic enums (Option, Result)
         self.register_builtin_enums();
@@ -474,6 +547,10 @@ impl TypeChecker {
                 self.unify(*ea, *eb, span)
             }
 
+            // Allow [T; N] to coerce to [T] (slice)
+            (Ty::Array { element: ea, .. }, Ty::Slice(eb))
+            | (Ty::Slice(eb), Ty::Array { element: ea, .. }) => self.unify(*ea, *eb, span),
+
             (Ty::Slice(ea), Ty::Slice(eb)) => self.unify(*ea, *eb, span),
 
             (
@@ -604,6 +681,16 @@ impl TypeChecker {
             }
         }
         ty
+    }
+
+    /// Auto-deref a type: if it's a reference, return the inner type.
+    /// This enables `&self` methods to access fields without explicit deref.
+    fn auto_deref(&self, ty: TypeId) -> TypeId {
+        let resolved = self.resolve(ty);
+        match self.ctx.get(resolved) {
+            Ty::Reference { inner, .. } => self.resolve(*inner),
+            _ => resolved,
+        }
     }
 
     /// Fully resolve a type, replacing all inference variables.
@@ -1639,7 +1726,7 @@ impl TypeChecker {
                         }
 
                         for (arg, &param_ty) in args.iter().zip(params.iter()) {
-                            let arg_ty = self.check_expr(arg);
+                            let arg_ty = self.check_expr(&arg.value);
                             self.unify(arg_ty, param_ty, arg.span);
                         }
 
@@ -1647,7 +1734,7 @@ impl TypeChecker {
                     }
                     Ty::Infer(_) => {
                         // Create function type from args
-                        let arg_tys: Vec<_> = args.iter().map(|a| self.check_expr(a)).collect();
+                        let arg_tys: Vec<_> = args.iter().map(|a| self.check_expr(&a.value)).collect();
                         let ret_ty = self.ctx.fresh_infer();
                         let fn_ty = self.ctx.function(arg_tys, ret_ty);
                         self.unify(callee_ty, fn_ty, callee.span);
@@ -1665,7 +1752,8 @@ impl TypeChecker {
 
             ExprKind::MethodCall { receiver, method, args } => {
                 let receiver_ty = self.check_expr(receiver);
-                let resolved_receiver = self.resolve(receiver_ty);
+                // Auto-deref for method lookup (enables calling methods on &T)
+                let resolved_receiver = self.auto_deref(receiver_ty);
 
                 // Try to find the method in impl blocks for this type
                 let method_info = self.resolve_method(resolved_receiver, &method.name);
@@ -1690,7 +1778,7 @@ impl TypeChecker {
 
                         // Check argument types
                         for (arg, &param_ty) in args.iter().zip(params.iter()) {
-                            let arg_ty = self.check_expr(arg);
+                            let arg_ty = self.check_expr(&arg.value);
                             self.unify(arg_ty, param_ty, arg.span);
                         }
 
@@ -1699,7 +1787,7 @@ impl TypeChecker {
                     None => {
                         // No method found, check args anyway and return error
                         for arg in args {
-                            self.check_expr(arg);
+                            self.check_expr(&arg.value);
                         }
                         self.error(TypeError::Custom(
                             format!("no method named `{}` found for type `{}`",
@@ -1713,7 +1801,8 @@ impl TypeChecker {
 
             ExprKind::Field { base, field } => {
                 let base_ty = self.check_expr(base);
-                let resolved = self.resolve(base_ty);
+                // Auto-deref references for field access (enables &self methods)
+                let resolved = self.auto_deref(base_ty);
 
                 match self.ctx.get(resolved).clone() {
                     Ty::Tuple(elems) => {
@@ -1976,8 +2065,44 @@ impl TypeChecker {
             }
 
             ExprKind::Try { operand } => {
-                self.check_expr(operand);
-                self.ctx.fresh_infer()
+                let operand_ty = self.check_expr(operand);
+                let resolved = self.resolve(operand_ty);
+
+                // Extract inner type from Option<T> or Result<T, E>
+                match self.ctx.get(resolved).clone() {
+                    Ty::Enum(e)
+                        if e.name.as_ref() == "Option" || e.name.as_ref() == "Result" =>
+                    {
+                        // Find the "Some" or "Ok" variant and get its inner type
+                        for variant in &e.variants {
+                            if variant.name.as_ref() == "Some" || variant.name.as_ref() == "Ok" {
+                                if let crate::types::VariantFields::Tuple(fields) = &variant.fields
+                                {
+                                    if let Some(&inner_ty) = fields.first() {
+                                        return inner_ty;
+                                    }
+                                }
+                            }
+                        }
+                        self.ctx.fresh_infer()
+                    }
+                    Ty::Applied { base, args } => {
+                        // Check if base is Option or Result
+                        if let Ty::Enum(e) = self.ctx.get(base).clone() {
+                            if (e.name.as_ref() == "Option" || e.name.as_ref() == "Result")
+                                && !args.is_empty()
+                            {
+                                // For Option<T> and Result<T, E>, return T (first type arg)
+                                return args[0];
+                            }
+                        }
+                        self.ctx.fresh_infer()
+                    }
+                    _ => {
+                        // Not an Option or Result - type error, but let inference handle it
+                        self.ctx.fresh_infer()
+                    }
+                }
             }
 
             ExprKind::Struct { path, fields, rest } => {
@@ -2096,6 +2221,18 @@ impl TypeChecker {
             }
 
             ExprKind::Grouped(inner) => self.check_expr(inner),
+
+            ExprKind::FormatString { parts } => {
+                // Type check each expression part
+                for part in parts {
+                    if let FormatPart::Expr(inner_expr) = part {
+                        // The expression can be any type - we'll convert to string at runtime
+                        self.check_expr(inner_expr);
+                    }
+                }
+                // Format strings always produce String
+                self.ctx.string()
+            }
         };
         // Record the expression type for compiler optimization
         self.record_expr_type(expr.span, ty);

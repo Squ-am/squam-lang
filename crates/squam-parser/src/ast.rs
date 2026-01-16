@@ -166,6 +166,7 @@ pub struct StructField {
     pub visibility: Visibility,
     pub name: Identifier,
     pub ty: Type,
+    pub default: Option<Box<Expr>>,
     pub span: Span,
 }
 
@@ -476,10 +477,10 @@ pub enum ExprKind {
     Index { base: Box<Expr>, index: Box<Expr> },
 
     // Calls
-    /// Function call: `f(x, y)`
-    Call { callee: Box<Expr>, args: Vec<Expr> },
-    /// Method call: `x.foo(y)`
-    MethodCall { receiver: Box<Expr>, method: Identifier, args: Vec<Expr> },
+    /// Function call: `f(x, y)` or `f(name: x, age: y)`
+    Call { callee: Box<Expr>, args: Vec<CallArg> },
+    /// Method call: `x.foo(y)` or `x.foo(name: y)`
+    MethodCall { receiver: Box<Expr>, method: Identifier, args: Vec<CallArg> },
 
     // Constructors
     /// Struct literal: `Point { x: 1, y: 2 }`
@@ -532,6 +533,17 @@ pub enum ExprKind {
     Cast { expr: Box<Expr>, ty: Type },
     /// Grouped expression: `(expr)` - for AST, this is transparent
     Grouped(Box<Expr>),
+    /// Format string: `f"Hello {name}!"`
+    FormatString { parts: Vec<FormatPart> },
+}
+
+/// A part of a format string.
+#[derive(Debug, Clone)]
+pub enum FormatPart {
+    /// A literal string segment
+    Literal(String),
+    /// An interpolated expression
+    Expr(Box<Expr>),
 }
 
 /// A path in expression context.
@@ -546,6 +558,14 @@ pub struct ExprPath {
 pub struct StructExprField {
     pub name: Identifier,
     pub value: Option<Expr>,
+    pub span: Span,
+}
+
+/// A function call argument (positional or named).
+#[derive(Debug, Clone)]
+pub struct CallArg {
+    pub name: Option<Identifier>,
+    pub value: Expr,
     pub span: Span,
 }
 

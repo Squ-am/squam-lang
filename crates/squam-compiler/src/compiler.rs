@@ -62,6 +62,8 @@ struct LoopInfo {
 struct StructTypeInfo {
     /// Field names in declaration order
     fields: Vec<String>,
+    /// Default values for fields (field name -> default expression)
+    defaults: HashMap<String, Expr>,
 }
 
 /// Enum type information for compilation.
@@ -157,6 +159,8 @@ pub struct Compiler {
     compiled_instantiations: HashMap<String, String>,
     /// Current type substitution during monomorphization (T -> "i64")
     current_substitution: HashMap<String, String>,
+    /// Counter for generating unique temporary variable names
+    temp_counter: usize,
 }
 
 impl Compiler {
@@ -175,6 +179,7 @@ impl Compiler {
             generic_defs: HashMap::new(),
             compiled_instantiations: HashMap::new(),
             current_substitution: HashMap::new(),
+            temp_counter: 0,
         };
         compiler.register_builtin_enums();
         compiler
@@ -195,6 +200,7 @@ impl Compiler {
             generic_defs: HashMap::new(),
             compiled_instantiations: HashMap::new(),
             current_substitution: HashMap::new(),
+            temp_counter: 0,
         };
         compiler.register_builtin_enums();
         compiler
@@ -414,6 +420,13 @@ impl Compiler {
     /// Get the current chunk.
     fn chunk(&mut self) -> &mut Chunk {
         &mut self.current().chunk
+    }
+
+    /// Generate a unique temporary variable name.
+    fn fresh_temp(&mut self, prefix: &str) -> String {
+        let id = self.temp_counter;
+        self.temp_counter += 1;
+        format!("__{}_{}__", prefix, id)
     }
 
     // ---
@@ -1032,17 +1045,23 @@ impl Compiler {
 
     /// Internal implementation for struct compilation.
     fn compile_struct_def_impl(&mut self, struct_def: &StructDef, name: &str) -> Result<(), CompileError> {
-        let fields = match &struct_def.fields {
+        let (fields, defaults) = match &struct_def.fields {
             StructFields::Named(fields) => {
-                fields.iter().map(|f| f.name.name.to_string()).collect()
+                let field_names = fields.iter().map(|f| f.name.name.to_string()).collect();
+                let field_defaults: HashMap<String, Expr> = fields.iter()
+                    .filter_map(|f| {
+                        f.default.as_ref().map(|d| (f.name.name.to_string(), (**d).clone()))
+                    })
+                    .collect();
+                (field_names, field_defaults)
             }
             StructFields::Tuple(fields) => {
                 // For tuple structs, use numeric field names
-                (0..fields.len()).map(|i| i.to_string()).collect()
+                ((0..fields.len()).map(|i| i.to_string()).collect(), HashMap::new())
             }
-            StructFields::Unit => Vec::new(),
+            StructFields::Unit => (Vec::new(), HashMap::new()),
         };
-        self.struct_types.insert(name.to_string(), StructTypeInfo { fields });
+        self.struct_types.insert(name.to_string(), StructTypeInfo { fields, defaults });
         Ok(())
     }
 
@@ -1643,7 +1662,8 @@ impl Compiler {
                 // Stack: [tuple]
                 // Store tuple in a temporary local so we can access it for each element
                 let temp_slot = self.current().locals.len() as u8;
-                self.declare_local("__tuple__", false)?;
+                let temp_name = self.fresh_temp("tuple");
+                self.declare_local(&temp_name, false)?;
 
                 for (i, pat) in patterns.iter().enumerate() {
                     // Load the tuple from its temp slot
@@ -1663,7 +1683,8 @@ impl Compiler {
                 // Stack: [enum]
                 // Store enum in a temporary local so we can access its fields
                 let temp_slot = self.current().locals.len() as u8;
-                self.declare_local("__enum__", false)?;
+                let temp_name = self.fresh_temp("enum");
+                self.declare_local(&temp_name, false)?;
 
                 for (i, pat) in fields.iter().enumerate() {
                     // Load the enum from its temp slot
@@ -1875,7 +1896,7 @@ impl Compiler {
                                 if field_count == args.len() {
                                     // Compile arguments (variant fields)
                                     for arg in args {
-                                        self.compile_expr(arg)?;
+                                        self.compile_expr(&arg.value)?;
                                     }
                                     // Create enum variant
                                     let enum_info_const = Constant::EnumInfo {
@@ -1901,7 +1922,7 @@ impl Compiler {
                         if self.struct_types.contains_key(&type_name) {
                             // Compile arguments first
                             for arg in args {
-                                self.compile_expr(arg)?;
+                                self.compile_expr(&arg.value)?;
                             }
                             // Emit CallStatic opcode
                             let type_name_idx = self.chunk().add_constant(Constant::String(type_name));
@@ -1935,7 +1956,7 @@ impl Compiler {
 
                             // Then compile arguments
                             for arg in args {
-                                self.compile_expr(arg)?;
+                                self.compile_expr(&arg.value)?;
                             }
 
                             // Call
@@ -1949,7 +1970,7 @@ impl Compiler {
                 // Regular function call
                 self.compile_expr(callee)?;
                 for arg in args {
-                    self.compile_expr(arg)?;
+                    self.compile_expr(&arg.value)?;
                 }
                 self.emit(OpCode::Call);
                 self.emit_byte(args.len() as u8);
@@ -1960,7 +1981,7 @@ impl Compiler {
                 // Push receiver first, then args
                 self.compile_expr(receiver)?;
                 for arg in args {
-                    self.compile_expr(arg)?;
+                    self.compile_expr(&arg.value)?;
                 }
                 // CallMethod [method_name_idx: u16, arg_count: u8]
                 // arg_count includes receiver
@@ -2268,12 +2289,12 @@ impl Compiler {
                     base_struct_name
                 };
 
-                // Look up struct type to get field order
-                let field_order = self.struct_types.get(&struct_name)
-                    .map(|info| info.fields.clone())
+                // Look up struct type to get field order and defaults
+                let (field_order, field_defaults) = self.struct_types.get(&struct_name)
+                    .map(|info| (info.fields.clone(), info.defaults.clone()))
                     .unwrap_or_else(|| {
                         // Unknown struct, use fields as provided
-                        fields.iter().map(|f| f.name.name.to_string()).collect()
+                        (fields.iter().map(|f| f.name.name.to_string()).collect(), HashMap::new())
                     });
 
                 // Build a map of provided field values
@@ -2292,8 +2313,11 @@ impl Compiler {
                             // Shorthand: field name is variable name
                             self.load_variable(field_name)?;
                         }
+                    } else if let Some(default_expr) = field_defaults.get(field_name) {
+                        // Field not provided but has default value
+                        self.compile_expr(default_expr)?;
                     } else {
-                        // Field not provided, emit unit (will be an error at runtime)
+                        // Field not provided and no default, emit unit (will be an error at runtime)
                         self.emit(OpCode::Unit);
                     }
                 }
@@ -2409,7 +2433,66 @@ impl Compiler {
             }
 
             ExprKind::Grouped(inner) => self.compile_expr(inner),
+
+            ExprKind::FormatString { parts } => {
+                // Compile format string by concatenating parts
+                // Strategy: for each concatenation, push function first, then args
+                if parts.is_empty() {
+                    // Empty format string -> empty string
+                    self.emit_constant(Constant::String(String::new()))?;
+                    return Ok(());
+                }
+
+                // Compile the first part (leaves a string on stack)
+                self.compile_format_part(&parts[0])?;
+
+                // For each subsequent part, compile and concatenate
+                // Stack before: [result_so_far]
+                // We need: [str_concat, result_so_far, new_part] then Call
+                for part in &parts[1..] {
+                    // Load str_concat function first
+                    let concat_idx = self.add_constant(Constant::String("str_concat".to_string()))?;
+                    self.emit(OpCode::LoadGlobal);
+                    self.emit_u16(concat_idx);
+                    // Stack: [result_so_far, str_concat]
+
+                    // Swap to get: [str_concat, result_so_far]
+                    self.emit(OpCode::Swap);
+
+                    // Compile the new part
+                    self.compile_format_part(part)?;
+                    // Stack: [str_concat, result_so_far, new_part]
+
+                    // Call str_concat(result_so_far, new_part)
+                    self.emit(OpCode::Call);
+                    self.emit_byte(2);
+                    // Stack: [concatenated_result]
+                }
+
+                Ok(())
+            }
         }
+    }
+
+    /// Compile a single format string part, leaving a string value on the stack.
+    fn compile_format_part(&mut self, part: &FormatPart) -> Result<(), CompileError> {
+        match part {
+            FormatPart::Literal(s) => {
+                self.emit_constant(Constant::String(s.clone()))?;
+            }
+            FormatPart::Expr(expr) => {
+                // Load the to_string function first (Call expects callee before args)
+                let idx = self.add_constant(Constant::String("to_string".to_string()))?;
+                self.emit(OpCode::LoadGlobal);
+                self.emit_u16(idx);
+                // Then compile the expression (the argument)
+                self.compile_expr(expr)?;
+                // Call to_string(expr)
+                self.emit(OpCode::Call);
+                self.emit_byte(1);
+            }
+        }
+        Ok(())
     }
 
     fn compile_literal(&mut self, lit: &Literal) -> Result<(), CompileError> {
