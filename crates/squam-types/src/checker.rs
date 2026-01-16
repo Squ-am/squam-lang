@@ -5,6 +5,7 @@ use squam_parser::ast::*;
 use crate::context::TypeContext;
 use crate::scope::{SymbolTable, TypeNamespace, FunctionNamespace, TraitNamespace, Binding, BindingKind, ScopeKind, FunctionSig, TypeDef, TypeDefKind, GenericParamInfo, TraitDef as ScopeTraitDef, TraitMethodSig, AssociatedTypeDef, ImplDef, ImplMethodSig};
 use crate::types::{TypeId, Ty, InferVar, GenericVar};
+use crate::TypeAnnotations;
 
 /// Type checking errors.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -135,6 +136,8 @@ pub struct TypeChecker {
     errors: Vec<TypeError>,
     /// Current function return type (for checking returns)
     current_return_type: Option<TypeId>,
+    /// Type annotations for expressions (for compiler optimization)
+    annotations: TypeAnnotations,
 }
 
 impl TypeChecker {
@@ -149,11 +152,24 @@ impl TypeChecker {
             substitutions: FxHashMap::default(),
             errors: Vec::new(),
             current_return_type: None,
+            annotations: TypeAnnotations::new(),
         };
 
         // Register built-in types
         checker.register_builtins();
         checker
+    }
+
+    /// Take the collected type annotations.
+    pub fn take_annotations(&mut self) -> TypeAnnotations {
+        std::mem::take(&mut self.annotations)
+    }
+
+    /// Record the type of an expression (for compiler optimization).
+    fn record_expr_type(&mut self, span: Span, ty: TypeId) {
+        // Resolve the type to get the concrete type
+        let resolved = self.resolve(ty);
+        self.annotations.record_expr(span.start, resolved);
     }
 
     fn register_builtins(&mut self) {
@@ -1223,7 +1239,7 @@ impl TypeChecker {
 
     /// Check an expression, returning its type.
     pub fn check_expr(&mut self, expr: &Expr) -> TypeId {
-        match &expr.kind {
+        let ty = match &expr.kind {
             ExprKind::Literal(lit) => self.check_literal(lit),
 
             ExprKind::Path(path) => self.check_path(path, expr.span),
@@ -1700,7 +1716,10 @@ impl TypeChecker {
             }
 
             ExprKind::Grouped(inner) => self.check_expr(inner),
-        }
+        };
+        // Record the expression type for compiler optimization
+        self.record_expr_type(expr.span, ty);
+        ty
     }
 
     /// Check a literal, returning its type.

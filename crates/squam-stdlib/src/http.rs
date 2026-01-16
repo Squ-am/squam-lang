@@ -1,28 +1,23 @@
 use squam_vm::{Value, VM};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use squam_vm::value::StructInstance;
 
 fn create_response_struct(status: i64, body: String, headers: HashMap<String, String>) -> Value {
-    let mut fields = HashMap::new();
-    fields.insert("status".to_string(), Value::Int(status));
-    fields.insert("body".to_string(), Value::String(Rc::new(body)));
-
-    // Convert headers to a Squam struct
-    let mut header_fields = HashMap::new();
+    // Create headers struct with dynamic fields
+    let headers_instance = StructInstance::new_dynamic("Headers".to_string());
     for (k, v) in headers {
-        header_fields.insert(k, Value::String(Rc::new(v)));
+        headers_instance.fields().borrow_mut().insert(k, Value::String(Rc::new(v)));
     }
-    fields.insert("headers".to_string(), Value::Struct(Rc::new(StructInstance {
-        name: "Headers".to_string(),
-        fields: RefCell::new(header_fields),
-    })));
 
-    Value::Struct(Rc::new(StructInstance {
-        name: "Response".to_string(),
-        fields: RefCell::new(fields),
-    }))
+    // Create response struct with ordered fields
+    let field_names = vec!["status".to_string(), "body".to_string(), "headers".to_string()];
+    let field_values = vec![
+        Value::Int(status),
+        Value::String(Rc::new(body)),
+        Value::Struct(Rc::new(headers_instance)),
+    ];
+    Value::Struct(Rc::new(StructInstance::new("Response".to_string(), field_names, field_values)))
 }
 
 pub fn register(vm: &mut VM) {

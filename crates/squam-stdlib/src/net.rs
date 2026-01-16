@@ -1,6 +1,5 @@
 use squam_vm::{Value, VM};
 use squam_vm::value::StructInstance;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write, BufRead, BufReader};
 use std::net::{TcpStream, TcpListener, ToSocketAddrs, Shutdown};
@@ -48,21 +47,17 @@ impl<T> HandleRegistry<T> {
 }
 
 fn create_handle_struct(handle_type: &str, id: i64) -> Value {
-    let mut fields = HashMap::new();
-    fields.insert("__type".to_string(), Value::String(Rc::new(handle_type.to_string())));
-    fields.insert("__handle".to_string(), Value::Int(id));
-    Value::Struct(Rc::new(StructInstance {
-        name: handle_type.to_string(),
-        fields: RefCell::new(fields),
-    }))
+    let instance = StructInstance::new_dynamic(handle_type.to_string());
+    instance.fields().borrow_mut().insert("__type".to_string(), Value::String(Rc::new(handle_type.to_string())));
+    instance.fields().borrow_mut().insert("__handle".to_string(), Value::Int(id));
+    Value::Struct(Rc::new(instance))
 }
 
 fn get_handle_id(value: &Value, expected_type: &str) -> Result<i64, String> {
     match value {
         Value::Struct(s) => {
-            let fields = s.fields.borrow();
-            match fields.get("__handle") {
-                Some(Value::Int(id)) => Ok(*id),
+            match s.fields().borrow().get("__handle").cloned() {
+                Some(Value::Int(id)) => Ok(id),
                 _ => Err(format!("Expected {} handle", expected_type)),
             }
         }

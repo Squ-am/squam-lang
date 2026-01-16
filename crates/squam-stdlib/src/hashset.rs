@@ -1,15 +1,11 @@
 use squam_vm::value::{StructInstance, Value};
 use squam_vm::VM;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Create a new empty HashSet wrapped as a Value.
 pub fn new_hashset() -> Value {
-    Value::Struct(Rc::new(StructInstance {
-        name: "HashSet".to_string(),
-        fields: RefCell::new(HashMap::new()),
-    }))
+    Value::Struct(Rc::new(StructInstance::new_dynamic("HashSet".to_string())))
 }
 
 /// Helper to get a string key from a Value (same as HashMap).
@@ -35,8 +31,8 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
                 let key = to_key(&args[1]);
-                let was_new = !s.fields.borrow().contains_key(&key);
-                s.fields.borrow_mut().insert(key, Value::Unit);
+                let was_new = !s.fields().borrow().contains_key(&key);
+                s.fields().borrow_mut().insert(key, Value::Unit);
                 return Ok(Value::Bool(was_new));
             }
         }
@@ -48,7 +44,7 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
                 let key = to_key(&args[1]);
-                let contains = s.fields.borrow().contains_key(&key);
+                let contains = s.fields().borrow().contains_key(&key);
                 return Ok(Value::Bool(contains));
             }
         }
@@ -60,7 +56,7 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
                 let key = to_key(&args[1]);
-                let was_present = s.fields.borrow_mut().remove(&key).is_some();
+                let was_present = s.fields().borrow_mut().remove(&key).is_some();
                 return Ok(Value::Bool(was_present));
             }
         }
@@ -71,7 +67,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashset_len", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
-                let len = s.fields.borrow().len();
+                let len = s.fields().borrow().len();
                 return Ok(Value::Int(len as i64));
             }
         }
@@ -82,7 +78,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashset_is_empty", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
-                let is_empty = s.fields.borrow().is_empty();
+                let is_empty = s.fields().borrow().is_empty();
                 return Ok(Value::Bool(is_empty));
             }
         }
@@ -93,7 +89,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashset_clear", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
-                s.fields.borrow_mut().clear();
+                s.fields().borrow_mut().clear();
                 return Ok(Value::Unit);
             }
         }
@@ -104,7 +100,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashset_to_array", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashSet" {
-                let fields = s.fields.borrow();
+                let fields = s.fields().borrow();
                 let values: Vec<Value> = fields.keys()
                     .map(|k| {
                         // Parse the key back to a Value
@@ -131,16 +127,13 @@ pub fn register(vm: &mut VM) {
             (Value::Struct(s1), Value::Struct(s2))
                 if s1.name == "HashSet" && s2.name == "HashSet" =>
             {
-                let result = StructInstance {
-                    name: "HashSet".to_string(),
-                    fields: RefCell::new(HashMap::new()),
-                };
+                let result = StructInstance::new_dynamic("HashSet".to_string());
 
-                for key in s1.fields.borrow().keys() {
-                    result.fields.borrow_mut().insert(key.clone(), Value::Unit);
+                for key in s1.fields().borrow().keys() {
+                    result.fields().borrow_mut().insert(key.clone(), Value::Unit);
                 }
-                for key in s2.fields.borrow().keys() {
-                    result.fields.borrow_mut().insert(key.clone(), Value::Unit);
+                for key in s2.fields().borrow().keys() {
+                    result.fields().borrow_mut().insert(key.clone(), Value::Unit);
                 }
 
                 Ok(Value::Struct(Rc::new(result)))
@@ -155,17 +148,14 @@ pub fn register(vm: &mut VM) {
             (Value::Struct(s1), Value::Struct(s2))
                 if s1.name == "HashSet" && s2.name == "HashSet" =>
             {
-                let result = StructInstance {
-                    name: "HashSet".to_string(),
-                    fields: RefCell::new(HashMap::new()),
-                };
+                let result = StructInstance::new_dynamic("HashSet".to_string());
 
-                let fields1 = s1.fields.borrow();
-                let fields2 = s2.fields.borrow();
+                let fields1 = s1.fields().borrow();
+                let fields2 = s2.fields().borrow();
 
                 for key in fields1.keys() {
                     if fields2.contains_key(key) {
-                        result.fields.borrow_mut().insert(key.clone(), Value::Unit);
+                        result.fields().borrow_mut().insert(key.clone(), Value::Unit);
                     }
                 }
 
@@ -181,17 +171,14 @@ pub fn register(vm: &mut VM) {
             (Value::Struct(s1), Value::Struct(s2))
                 if s1.name == "HashSet" && s2.name == "HashSet" =>
             {
-                let result = StructInstance {
-                    name: "HashSet".to_string(),
-                    fields: RefCell::new(HashMap::new()),
-                };
+                let result = StructInstance::new_dynamic("HashSet".to_string());
 
-                let fields1 = s1.fields.borrow();
-                let fields2 = s2.fields.borrow();
+                let fields1 = s1.fields().borrow();
+                let fields2 = s2.fields().borrow();
 
                 for key in fields1.keys() {
                     if !fields2.contains_key(key) {
-                        result.fields.borrow_mut().insert(key.clone(), Value::Unit);
+                        result.fields().borrow_mut().insert(key.clone(), Value::Unit);
                     }
                 }
 

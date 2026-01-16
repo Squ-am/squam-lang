@@ -5,6 +5,7 @@ use std::rc::Rc;
 use squam_compiler::{Chunk, Constant, FunctionProto, OpCode};
 
 use crate::gc::{GcConfig, GcHeap, GcStats, Trace};
+use crate::inline_cache::{CallSiteId, InlineCacheManager, TypeId};
 use crate::value::{ArrayIterator, Closure, EnumInstance, NativeFunction, RangeIterator, SquamIterator, StructInstance, Upvalue, Value, VMNativeFnId};
 
 /// VM execution errors.
@@ -84,6 +85,8 @@ pub struct VM {
     gc_enabled: bool,
     /// VM-native function registry (functions that need VM access)
     vm_natives: Vec<(VMNativeFn, u8)>, // (function, arity)
+    /// Inline cache for field/method/global access
+    inline_cache: InlineCacheManager,
 }
 
 impl VM {
@@ -106,6 +109,7 @@ impl VM {
             gc_heap: GcHeap::with_config(gc_config),
             gc_enabled: true,
             vm_natives: Vec::new(),
+            inline_cache: InlineCacheManager::new(),
         };
         vm.register_natives();
         vm
@@ -139,6 +143,21 @@ impl VM {
     /// Get GC statistics.
     pub fn gc_stats(&self) -> GcStats {
         self.gc_heap.stats()
+    }
+
+    /// Enable or disable inline caching.
+    pub fn set_inline_cache_enabled(&mut self, enabled: bool) {
+        self.inline_cache.set_enabled(enabled);
+    }
+
+    /// Get inline cache statistics report.
+    pub fn inline_cache_report(&self) -> String {
+        self.inline_cache.report()
+    }
+
+    /// Get inline cache hit ratio.
+    pub fn inline_cache_hit_ratio(&self) -> f64 {
+        self.inline_cache.hit_ratio()
     }
 
     /// Check if GC should run and run it if needed.
@@ -645,6 +664,80 @@ impl VM {
                         }
                     }
                 }
+                OpCode::FAdd => {
+                    // Float add (optimized)
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match (&a, &b) {
+                        (Value::Float(a), Value::Float(b)) => self.push(Value::Float(a + b))?,
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "float",
+                                got: format!("{} and {}", a.type_name(), b.type_name()),
+                            })
+                        }
+                    }
+                }
+                OpCode::FSub => {
+                    // Float subtract (optimized)
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match (&a, &b) {
+                        (Value::Float(a), Value::Float(b)) => self.push(Value::Float(a - b))?,
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "float",
+                                got: format!("{} and {}", a.type_name(), b.type_name()),
+                            })
+                        }
+                    }
+                }
+                OpCode::FMul => {
+                    // Float multiply (optimized)
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match (&a, &b) {
+                        (Value::Float(a), Value::Float(b)) => self.push(Value::Float(a * b))?,
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "float",
+                                got: format!("{} and {}", a.type_name(), b.type_name()),
+                            })
+                        }
+                    }
+                }
+                OpCode::FDiv => {
+                    // Float divide (optimized)
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match (&a, &b) {
+                        (Value::Float(a), Value::Float(b)) => self.push(Value::Float(a / b))?,
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "float",
+                                got: format!("{} and {}", a.type_name(), b.type_name()),
+                            })
+                        }
+                    }
+                }
+                OpCode::SConcat => {
+                    // String concatenation (optimized)
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match (&a, &b) {
+                        (Value::String(a), Value::String(b)) => {
+                            let mut result = (**a).to_string();
+                            result.push_str(b);
+                            self.push(Value::String(Rc::new(result)))?
+                        }
+                        _ => {
+                            return Err(RuntimeError::TypeError {
+                                expected: "string",
+                                got: format!("{} and {}", a.type_name(), b.type_name()),
+                            })
+                        }
+                    }
+                }
 
                 // BITWISE
                 OpCode::BitAnd => {
@@ -1082,16 +1175,7 @@ impl VM {
                     }
                     values.reverse();
 
-                    // Build fields HashMap
-                    let mut fields = std::collections::HashMap::new();
-                    for (name, value) in field_names.into_iter().zip(values) {
-                        fields.insert(name, value);
-                    }
-
-                    let instance = StructInstance {
-                        name,
-                        fields: RefCell::new(fields),
-                    };
+                    let instance = StructInstance::new(name, field_names, values);
                     self.push(Value::Struct(Rc::new(instance)))?;
                 }
                 OpCode::Enum => {
@@ -1204,6 +1288,8 @@ impl VM {
                     self.push(Value::Unit)?;
                 }
                 OpCode::GetFieldNamed => {
+                    // Call site ID for inline caching (IP before reading operands)
+                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
                     let field_name_idx = self.read_u16();
                     let field_name = match self.read_constant(field_name_idx as usize) {
                         Constant::String(s) => s.clone(),
@@ -1214,13 +1300,37 @@ impl VM {
                     let value = self.pop()?;
                     let field = match value {
                         Value::Struct(s) => {
-                            let fields = s.fields.borrow();
-                            fields.get(&field_name).cloned().ok_or_else(|| {
-                                RuntimeError::UndefinedField {
-                                    field: field_name.clone(),
-                                    type_name: s.name.clone(),
+                            let type_id = TypeId::from_name(&s.name);
+
+                            // Try cache first
+                            if let Some(cached_idx) = self.inline_cache.lookup_field(call_site, type_id) {
+                                // Cache hit - use indexed access
+                                s.get_field_idx(cached_idx).ok_or_else(|| {
+                                    RuntimeError::UndefinedField {
+                                        field: field_name.clone(),
+                                        type_name: s.name.clone(),
+                                    }
+                                })?
+                            } else {
+                                // Cache miss - look up index and update cache
+                                if let Some(&idx) = s.field_indices.get(&field_name) {
+                                    self.inline_cache.update_field(call_site, type_id, idx);
+                                    s.get_field_idx(idx).ok_or_else(|| {
+                                        RuntimeError::UndefinedField {
+                                            field: field_name.clone(),
+                                            type_name: s.name.clone(),
+                                        }
+                                    })?
+                                } else {
+                                    // Field not in ordered fields, try dynamic
+                                    s.get_field(&field_name).ok_or_else(|| {
+                                        RuntimeError::UndefinedField {
+                                            field: field_name.clone(),
+                                            type_name: s.name.clone(),
+                                        }
+                                    })?
                                 }
-                            })?
+                            }
                         }
                         _ => {
                             return Err(RuntimeError::TypeError {
@@ -1232,6 +1342,8 @@ impl VM {
                     self.push(field)?;
                 }
                 OpCode::SetFieldNamed => {
+                    // Call site ID for inline caching
+                    let call_site = CallSiteId::from_offset(self.current_frame().ip.saturating_sub(1));
                     let field_name_idx = self.read_u16();
                     let field_name = match self.read_constant(field_name_idx as usize) {
                         Constant::String(s) => s.clone(),
@@ -1243,14 +1355,24 @@ impl VM {
                     let value = self.pop()?;
                     match &target {
                         Value::Struct(s) => {
-                            let mut fields = s.fields.borrow_mut();
-                            if !fields.contains_key(&field_name) {
-                                return Err(RuntimeError::UndefinedField {
-                                    field: field_name,
-                                    type_name: s.name.clone(),
-                                });
+                            let type_id = TypeId::from_name(&s.name);
+
+                            // Try cache first
+                            if let Some(cached_idx) = self.inline_cache.lookup_field(call_site, type_id) {
+                                // Cache hit - use indexed access
+                                s.set_field_idx(cached_idx, value.clone());
+                            } else {
+                                // Cache miss - look up index and update cache
+                                if let Some(&idx) = s.field_indices.get(&field_name) {
+                                    self.inline_cache.update_field(call_site, type_id, idx);
+                                    s.set_field_idx(idx, value.clone());
+                                } else if !s.set_field(&field_name, value.clone()) {
+                                    return Err(RuntimeError::UndefinedField {
+                                        field: field_name,
+                                        type_name: s.name.clone(),
+                                    });
+                                }
                             }
-                            fields.insert(field_name, value.clone());
                         }
                         _ => {
                             return Err(RuntimeError::TypeError {

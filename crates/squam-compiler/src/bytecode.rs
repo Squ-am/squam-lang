@@ -59,8 +59,12 @@ pub enum OpCode {
     IAdd = 0x26,
     /// Integer subtract
     ISub = 0x27,
+    /// Float add
+    FAdd = 0x2E,
+    /// Float subtract
+    FSub = 0x2F,
 
-    // BITWISE (0x28-0x2F)
+    // BITWISE (0x28-0x2D)
     /// Bitwise and
     BitAnd = 0x28,
     /// Bitwise or
@@ -87,8 +91,14 @@ pub enum OpCode {
     Gt = 0x34,
     /// Greater than or equal
     Ge = 0x35,
+    /// Float multiply
+    FMul = 0x36,
+    /// Float divide
+    FDiv = 0x37,
     /// Logical not
     Not = 0x38,
+    /// String concatenation
+    SConcat = 0x39,
 
     // CONTROL FLOW (0x40-0x4F)
     /// Unconditional jump [offset: i16]
@@ -217,6 +227,11 @@ impl OpCode {
             | OpCode::Neg
             | OpCode::IAdd
             | OpCode::ISub
+            | OpCode::FAdd
+            | OpCode::FSub
+            | OpCode::FMul
+            | OpCode::FDiv
+            | OpCode::SConcat
             | OpCode::BitAnd
             | OpCode::BitOr
             | OpCode::BitXor
@@ -315,6 +330,11 @@ impl OpCode {
             OpCode::Neg => "NEG",
             OpCode::IAdd => "IADD",
             OpCode::ISub => "ISUB",
+            OpCode::FAdd => "FADD",
+            OpCode::FSub => "FSUB",
+            OpCode::FMul => "FMUL",
+            OpCode::FDiv => "FDIV",
+            OpCode::SConcat => "SCONCAT",
             OpCode::BitAnd => "BIT_AND",
             OpCode::BitOr => "BIT_OR",
             OpCode::BitXor => "BIT_XOR",
@@ -401,6 +421,8 @@ impl TryFrom<u8> for OpCode {
             0x25 => Ok(OpCode::Neg),
             0x26 => Ok(OpCode::IAdd),
             0x27 => Ok(OpCode::ISub),
+            0x2E => Ok(OpCode::FAdd),
+            0x2F => Ok(OpCode::FSub),
             0x28 => Ok(OpCode::BitAnd),
             0x29 => Ok(OpCode::BitOr),
             0x2A => Ok(OpCode::BitXor),
@@ -413,7 +435,10 @@ impl TryFrom<u8> for OpCode {
             0x33 => Ok(OpCode::Le),
             0x34 => Ok(OpCode::Gt),
             0x35 => Ok(OpCode::Ge),
+            0x36 => Ok(OpCode::FMul),
+            0x37 => Ok(OpCode::FDiv),
             0x38 => Ok(OpCode::Not),
+            0x39 => Ok(OpCode::SConcat),
             0x40 => Ok(OpCode::Jump),
             0x41 => Ok(OpCode::JumpIfFalse),
             0x43 => Ok(OpCode::JumpIfFalseNoPop),

@@ -4,6 +4,7 @@ debug/
 **/*.rs.bk
 
 # Build artifacts
+dist/
 *.so
 *.rlib
 *.dll

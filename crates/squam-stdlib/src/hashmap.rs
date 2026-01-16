@@ -1,15 +1,11 @@
 use squam_vm::value::{StructInstance, Value};
 use squam_vm::VM;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Create a new empty HashMap wrapped as a Value.
 pub fn new_hashmap() -> Value {
-    Value::Struct(Rc::new(StructInstance {
-        name: "HashMap".to_string(),
-        fields: RefCell::new(HashMap::new()),
-    }))
+    Value::Struct(Rc::new(StructInstance::new_dynamic("HashMap".to_string())))
 }
 
 /// Helper to get a string key from a Value.
@@ -35,7 +31,7 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
                 let key = to_key(&args[1]);
-                s.fields.borrow_mut().insert(key, args[2].clone());
+                s.fields().borrow_mut().insert(key, args[2].clone());
                 return Ok(Value::Unit);
             }
         }
@@ -47,7 +43,7 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
                 let key = to_key(&args[1]);
-                let fields = s.fields.borrow();
+                let fields = s.fields().borrow();
                 if let Some(value) = fields.get(&key) {
                     return Ok(super::option::some(value.clone()));
                 } else {
@@ -63,7 +59,7 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
                 let key = to_key(&args[1]);
-                let contains = s.fields.borrow().contains_key(&key);
+                let contains = s.fields().borrow().contains_key(&key);
                 return Ok(Value::Bool(contains));
             }
         }
@@ -75,7 +71,7 @@ pub fn register(vm: &mut VM) {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
                 let key = to_key(&args[1]);
-                let removed = s.fields.borrow_mut().remove(&key);
+                let removed = s.fields().borrow_mut().remove(&key);
                 if let Some(value) = removed {
                     return Ok(super::option::some(value));
                 } else {
@@ -90,7 +86,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashmap_len", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
-                let len = s.fields.borrow().len();
+                let len = s.fields().borrow().len();
                 return Ok(Value::Int(len as i64));
             }
         }
@@ -101,7 +97,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashmap_is_empty", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
-                let is_empty = s.fields.borrow().is_empty();
+                let is_empty = s.fields().borrow().is_empty();
                 return Ok(Value::Bool(is_empty));
             }
         }
@@ -112,7 +108,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashmap_clear", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
-                s.fields.borrow_mut().clear();
+                s.fields().borrow_mut().clear();
                 return Ok(Value::Unit);
             }
         }
@@ -123,7 +119,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashmap_keys", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
-                let fields = s.fields.borrow();
+                let fields = s.fields().borrow();
                 let keys: Vec<Value> = fields.keys()
                     .map(|k| {
                         // Parse the key back to a Value
@@ -148,7 +144,7 @@ pub fn register(vm: &mut VM) {
     vm.define_native("hashmap_values", 1, |args| {
         if let Value::Struct(s) = &args[0] {
             if s.name == "HashMap" {
-                let fields = s.fields.borrow();
+                let fields = s.fields().borrow();
                 let values: Vec<Value> = fields.values().cloned().collect();
                 return Ok(Value::Array(Rc::new(RefCell::new(values))));
             }

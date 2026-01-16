@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use squam_parser::ast::*;
+use squam_types::TypeAnnotations;
 use crate::bytecode::{Chunk, Constant, FunctionProto, OpCode, UpvalueInfo};
 
 /// Compilation errors.
@@ -128,6 +129,8 @@ pub struct Compiler {
     current_module_path: Vec<String>,
     /// Module imports: short name -> full qualified path
     module_imports: HashMap<String, String>,
+    /// Type annotations from type checking (for optimized codegen)
+    type_annotations: Option<TypeAnnotations>,
 }
 
 impl Compiler {
@@ -142,7 +145,33 @@ impl Compiler {
             type_aliases: HashMap::new(),
             current_module_path: Vec::new(),
             module_imports: HashMap::new(),
+            type_annotations: None,
         }
+    }
+
+    /// Create a new compiler with type annotations for optimized codegen.
+    pub fn with_type_annotations(annotations: TypeAnnotations) -> Self {
+        Self {
+            states: Vec::new(),
+            current_line: 1,
+            struct_types: HashMap::new(),
+            enum_types: HashMap::new(),
+            trait_types: HashMap::new(),
+            type_aliases: HashMap::new(),
+            current_module_path: Vec::new(),
+            module_imports: HashMap::new(),
+            type_annotations: Some(annotations),
+        }
+    }
+
+    /// Set type annotations for optimized code generation.
+    pub fn set_type_annotations(&mut self, annotations: TypeAnnotations) {
+        self.type_annotations = Some(annotations);
+    }
+
+    /// Get the type of an expression at the given span, if known.
+    fn get_expr_type(&self, span_start: u32) -> Option<squam_types::TypeId> {
+        self.type_annotations.as_ref()?.get_expr_type(span_start)
     }
 
     /// Resolve a type name through aliases to get the underlying type name.
@@ -1247,11 +1276,60 @@ impl Compiler {
 
                 self.compile_expr(left)?;
                 self.compile_expr(right)?;
+
+                // Try to emit specialized opcodes if type is known
+                let left_ty = self.get_expr_type(left.span.start);
                 match op {
-                    BinaryOp::Add => self.emit(OpCode::Add),
-                    BinaryOp::Sub => self.emit(OpCode::Sub),
-                    BinaryOp::Mul => self.emit(OpCode::Mul),
-                    BinaryOp::Div => self.emit(OpCode::Div),
+                    BinaryOp::Add => {
+                        if let Some(ty) = left_ty {
+                            if self.type_annotations.as_ref().map_or(false, |a| a.is_integer(ty)) {
+                                self.emit(OpCode::IAdd);
+                            } else if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                                self.emit(OpCode::FAdd);
+                            } else if self.type_annotations.as_ref().map_or(false, |a| a.is_string(ty)) {
+                                self.emit(OpCode::SConcat);
+                            } else {
+                                self.emit(OpCode::Add);
+                            }
+                        } else {
+                            self.emit(OpCode::Add);
+                        }
+                    }
+                    BinaryOp::Sub => {
+                        if let Some(ty) = left_ty {
+                            if self.type_annotations.as_ref().map_or(false, |a| a.is_integer(ty)) {
+                                self.emit(OpCode::ISub);
+                            } else if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                                self.emit(OpCode::FSub);
+                            } else {
+                                self.emit(OpCode::Sub);
+                            }
+                        } else {
+                            self.emit(OpCode::Sub);
+                        }
+                    }
+                    BinaryOp::Mul => {
+                        if let Some(ty) = left_ty {
+                            if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                                self.emit(OpCode::FMul);
+                            } else {
+                                self.emit(OpCode::Mul);
+                            }
+                        } else {
+                            self.emit(OpCode::Mul);
+                        }
+                    }
+                    BinaryOp::Div => {
+                        if let Some(ty) = left_ty {
+                            if self.type_annotations.as_ref().map_or(false, |a| a.is_float(ty)) {
+                                self.emit(OpCode::FDiv);
+                            } else {
+                                self.emit(OpCode::Div);
+                            }
+                        } else {
+                            self.emit(OpCode::Div);
+                        }
+                    }
                     BinaryOp::Rem => self.emit(OpCode::Rem),
                     BinaryOp::Eq => self.emit(OpCode::Eq),
                     BinaryOp::Ne => self.emit(OpCode::Ne),

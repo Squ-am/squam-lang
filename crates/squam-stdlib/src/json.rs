@@ -2,7 +2,6 @@ use squam_vm::{Value, VM};
 use squam_vm::value::StructInstance;
 use serde_json::{self, Value as JsonValue};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 fn json_to_squam(json: JsonValue) -> Value {
@@ -24,14 +23,11 @@ fn json_to_squam(json: JsonValue) -> Value {
             Value::Array(Rc::new(RefCell::new(values)))
         }
         JsonValue::Object(obj) => {
-            let mut fields = HashMap::new();
+            let instance = StructInstance::new_dynamic("Object".to_string());
             for (k, v) in obj {
-                fields.insert(k, json_to_squam(v));
+                instance.fields().borrow_mut().insert(k, json_to_squam(v));
             }
-            Value::Struct(Rc::new(StructInstance {
-                name: "Object".to_string(),
-                fields: RefCell::new(fields),
-            }))
+            Value::Struct(Rc::new(instance))
         }
     }
 }
@@ -59,7 +55,15 @@ fn squam_to_json(value: &Value) -> JsonValue {
         }
         Value::Struct(s) => {
             let mut map = serde_json::Map::new();
-            for (k, v) in s.fields.borrow().iter() {
+            // Include both ordered fields and dynamic fields
+            for (name, &idx) in s.field_indices.iter() {
+                if !name.starts_with("__") {
+                    if let Some(v) = s.field_values.borrow().get(idx) {
+                        map.insert(name.clone(), squam_to_json(v));
+                    }
+                }
+            }
+            for (k, v) in s.fields().borrow().iter() {
                 if !k.starts_with("__") {
                     map.insert(k.clone(), squam_to_json(v));
                 }
@@ -113,10 +117,11 @@ pub fn register(vm: &mut VM) {
     vm.define_native("json_get", 2, |args| {
         match (&args[0], &args[1]) {
             (Value::Struct(s), Value::String(key)) => {
-                let fields = s.fields.borrow();
-                match fields.get(key.as_str()) {
-                    Some(v) => Ok(v.clone()),
-                    None => Ok(Value::Unit),
+                // First check ordered fields, then dynamic
+                if let Some(v) = s.get_field(key.as_str()) {
+                    Ok(v)
+                } else {
+                    Ok(Value::Unit)
                 }
             }
             _ => Err("json_get: expected (struct, string)".to_string()),
@@ -127,8 +132,9 @@ pub fn register(vm: &mut VM) {
     vm.define_native("json_has", 2, |args| {
         match (&args[0], &args[1]) {
             (Value::Struct(s), Value::String(key)) => {
-                let fields = s.fields.borrow();
-                Ok(Value::Bool(fields.contains_key(key.as_str())))
+                let has = s.field_indices.contains_key(key.as_str())
+                    || s.fields().borrow().contains_key(key.as_str());
+                Ok(Value::Bool(has))
             }
             _ => Err("json_has: expected (struct, string)".to_string()),
         }
@@ -138,12 +144,16 @@ pub fn register(vm: &mut VM) {
     vm.define_native("json_keys", 1, |args| {
         match &args[0] {
             Value::Struct(s) => {
-                let fields = s.fields.borrow();
-                let keys: Vec<Value> = fields
+                let mut keys: Vec<Value> = s.field_indices
                     .keys()
                     .filter(|k| !k.starts_with("__"))
                     .map(|k| Value::String(Rc::new(k.clone())))
                     .collect();
+                for k in s.fields().borrow().keys() {
+                    if !k.starts_with("__") {
+                        keys.push(Value::String(Rc::new(k.clone())));
+                    }
+                }
                 Ok(Value::Array(Rc::new(RefCell::new(keys))))
             }
             _ => Err("json_keys: expected struct".to_string()),
@@ -154,12 +164,21 @@ pub fn register(vm: &mut VM) {
     vm.define_native("json_values", 1, |args| {
         match &args[0] {
             Value::Struct(s) => {
-                let fields = s.fields.borrow();
-                let values: Vec<Value> = fields
-                    .iter()
-                    .filter(|(k, _)| !k.starts_with("__"))
-                    .map(|(_, v)| v.clone())
-                    .collect();
+                let mut values: Vec<Value> = Vec::new();
+                // Add ordered field values
+                for (name, &idx) in &s.field_indices {
+                    if !name.starts_with("__") {
+                        if let Some(v) = s.field_values.borrow().get(idx) {
+                            values.push(v.clone());
+                        }
+                    }
+                }
+                // Add dynamic field values
+                for (k, v) in s.fields().borrow().iter() {
+                    if !k.starts_with("__") {
+                        values.push(v.clone());
+                    }
+                }
                 Ok(Value::Array(Rc::new(RefCell::new(values))))
             }
             _ => Err("json_values: expected struct".to_string()),

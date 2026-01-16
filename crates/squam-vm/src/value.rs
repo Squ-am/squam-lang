@@ -83,7 +83,75 @@ pub struct VMNativeFnEntry {
 #[derive(Clone)]
 pub struct StructInstance {
     pub name: String,
-    pub fields: RefCell<HashMap<String, Value>>,
+    /// Field values in declaration order
+    pub field_values: RefCell<Vec<Value>>,
+    /// Field name to index mapping for named access
+    pub field_indices: HashMap<String, usize>,
+    /// Dynamic fields for HashMap-like structs (used by stdlib hashmap)
+    pub dynamic_fields: RefCell<HashMap<String, Value>>,
+}
+
+impl StructInstance {
+    /// Create a new struct instance with ordered fields
+    pub fn new(name: String, field_names: Vec<String>, values: Vec<Value>) -> Self {
+        let mut field_indices = HashMap::new();
+        for (idx, field_name) in field_names.iter().enumerate() {
+            field_indices.insert(field_name.clone(), idx);
+        }
+        Self {
+            name,
+            field_values: RefCell::new(values),
+            field_indices,
+            dynamic_fields: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Create an empty dynamic struct (for HashMap-like containers)
+    pub fn new_dynamic(name: String) -> Self {
+        Self {
+            name,
+            field_values: RefCell::new(Vec::new()),
+            field_indices: HashMap::new(),
+            dynamic_fields: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Get a field by name (O(1) lookup via index mapping, falls back to dynamic)
+    pub fn get_field(&self, name: &str) -> Option<Value> {
+        if let Some(&idx) = self.field_indices.get(name) {
+            self.field_values.borrow().get(idx).cloned()
+        } else {
+            self.dynamic_fields.borrow().get(name).cloned()
+        }
+    }
+
+    /// Set a field by name
+    pub fn set_field(&self, name: &str, value: Value) -> bool {
+        if let Some(&idx) = self.field_indices.get(name) {
+            self.field_values.borrow_mut()[idx] = value;
+            true
+        } else if self.dynamic_fields.borrow().contains_key(name) {
+            self.dynamic_fields.borrow_mut().insert(name.to_string(), value);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get a field by index (direct O(1) access)
+    pub fn get_field_idx(&self, idx: usize) -> Option<Value> {
+        self.field_values.borrow().get(idx).cloned()
+    }
+
+    /// Set a field by index (direct O(1) access)
+    pub fn set_field_idx(&self, idx: usize, value: Value) {
+        self.field_values.borrow_mut()[idx] = value;
+    }
+
+    /// Access the dynamic fields directly (for HashMap-like operations)
+    pub fn fields(&self) -> &RefCell<HashMap<String, Value>> {
+        &self.dynamic_fields
+    }
 }
 
 /// An enum variant instance.
@@ -362,7 +430,10 @@ impl Trace for Value {
                 // Native functions don't contain GC pointers
             }
             Value::Struct(s) => {
-                for v in s.fields.borrow().values() {
+                for v in s.field_values.borrow().iter() {
+                    v.trace(tracer);
+                }
+                for v in s.dynamic_fields.borrow().values() {
                     v.trace(tracer);
                 }
             }
