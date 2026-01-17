@@ -248,7 +248,7 @@ impl TypeChecker {
 
         // Array operations
         self.register_extern_function("arr_len", vec![TypeId::ANY], TypeId::I64);
-        self.register_extern_function("arr_sum", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("sum", vec![TypeId::ANY], TypeId::ANY);
         self.register_extern_function("arr_push", vec![TypeId::ANY, TypeId::ANY], TypeId::UNIT);
         self.register_extern_function("arr_pop", vec![TypeId::ANY], TypeId::ANY);
         self.register_extern_function("arr_first", vec![TypeId::ANY], TypeId::ANY);
@@ -475,6 +475,144 @@ impl TypeChecker {
             output: TypeId::ANY,
         });
         self.register_extern_function("spawn", vec![TypeId::ANY], future_any);
+
+        // Range functions
+        self.register_extern_function("range", vec![TypeId::I64, TypeId::I64], TypeId::ANY);
+        self.register_extern_function(
+            "range_step",
+            vec![TypeId::I64, TypeId::I64, TypeId::I64],
+            TypeId::ANY,
+        );
+
+        // Additional array functions
+        self.register_extern_function("arr_set", vec![TypeId::ANY, TypeId::I64, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("arr_concat", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_contains", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("arr_index_of", vec![TypeId::ANY, TypeId::ANY], TypeId::I64);
+        self.register_extern_function("arr_insert", vec![TypeId::ANY, TypeId::I64, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("arr_remove", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("arr_slice", vec![TypeId::ANY, TypeId::I64, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("arr_join", vec![TypeId::ANY, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("arr_flatten", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_clear", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("arr_clone", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("arr_is_empty", vec![TypeId::ANY], TypeId::BOOL);
+
+        // Option/Result constructors and functions
+        self.register_extern_function("Some", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("None", vec![], TypeId::ANY);
+        self.register_extern_function("Ok", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("Err", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("is_some", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_none", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_ok", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("is_err", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("unwrap", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("unwrap_or", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("unwrap_ok", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("unwrap_err", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("result_unwrap_or", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("result_ok", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("result_err", vec![TypeId::ANY], TypeId::ANY);
+
+        // Additional math functions
+        self.register_extern_function("asin", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("acos", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("atan", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("atan2", vec![TypeId::F64, TypeId::F64], TypeId::F64);
+        self.register_extern_function("exp", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("ln", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("log10", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("log2", vec![TypeId::F64], TypeId::F64);
+        self.register_extern_function("pi", vec![], TypeId::F64);
+        self.register_extern_function("e", vec![], TypeId::F64);
+        self.register_extern_function("trunc", vec![TypeId::F64], TypeId::I64);
+        self.register_extern_function("sign", vec![TypeId::ANY], TypeId::I64);
+
+        // Random functions
+        self.register_extern_function("random", vec![], TypeId::F64);
+        self.register_extern_function("random_int", vec![TypeId::I64, TypeId::I64], TypeId::I64);
+        self.register_extern_function("random_float", vec![TypeId::F64, TypeId::F64], TypeId::F64);
+        self.register_extern_function("random_bool", vec![], TypeId::BOOL);
+        self.register_extern_function("random_choice", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("shuffle", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("sample", vec![TypeId::ANY, TypeId::I64], TypeId::ANY);
+        self.register_extern_function("uuid", vec![], TypeId::STRING);
+
+        // String functions
+        self.register_extern_function("str_concat", vec![TypeId::STRING, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("str_index_of", vec![TypeId::STRING, TypeId::STRING], TypeId::I64);
+        self.register_extern_function("char_to_str", vec![TypeId::I64], TypeId::STRING);
+        self.register_extern_function("int_to_str", vec![TypeId::I64], TypeId::STRING);
+        self.register_extern_function("float_to_str", vec![TypeId::F64], TypeId::STRING);
+
+        // HashMap functions
+        self.register_extern_function("hashmap_new", vec![], TypeId::ANY);
+        self.register_extern_function("hashmap_insert", vec![TypeId::ANY, TypeId::ANY, TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("hashmap_get", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashmap_contains", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("hashmap_remove", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashmap_len", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("hashmap_is_empty", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("hashmap_keys", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashmap_values", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashmap_clear", vec![TypeId::ANY], TypeId::UNIT);
+
+        // HashSet functions
+        self.register_extern_function("hashset_new", vec![], TypeId::ANY);
+        self.register_extern_function("hashset_insert", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("hashset_contains", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("hashset_remove", vec![TypeId::ANY, TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("hashset_len", vec![TypeId::ANY], TypeId::I64);
+        self.register_extern_function("hashset_is_empty", vec![TypeId::ANY], TypeId::BOOL);
+        self.register_extern_function("hashset_to_array", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashset_clear", vec![TypeId::ANY], TypeId::UNIT);
+        self.register_extern_function("hashset_union", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashset_intersection", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("hashset_difference", vec![TypeId::ANY, TypeId::ANY], TypeId::ANY);
+
+        // Filesystem functions
+        self.register_extern_function("mkdir", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("mkdir_all", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("rmdir", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("rmdir_all", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("remove_file", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("rename", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("copy_file", vec![TypeId::STRING, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("read_dir", vec![TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("is_file", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("is_dir", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("file_size", vec![TypeId::STRING], TypeId::I64);
+        self.register_extern_function("cwd", vec![], TypeId::STRING);
+        self.register_extern_function("chdir", vec![TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("path_join", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("path_parent", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("path_filename", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("path_extension", vec![TypeId::STRING], TypeId::STRING);
+
+        // Additional I/O functions
+        self.register_extern_function("read_lines", vec![TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("append_file", vec![TypeId::STRING, TypeId::STRING], TypeId::UNIT);
+        self.register_extern_function("args", vec![], TypeId::ANY);
+        self.register_extern_function("env_var", vec![TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("env_var_or", vec![TypeId::STRING, TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("todo", vec![], TypeId::NEVER);
+        self.register_extern_function("unreachable", vec![], TypeId::NEVER);
+
+        // JSON functions
+        self.register_extern_function("json_stringify_pretty", vec![TypeId::ANY], TypeId::STRING);
+        self.register_extern_function("json_get", vec![TypeId::ANY, TypeId::STRING], TypeId::ANY);
+        self.register_extern_function("json_has", vec![TypeId::ANY, TypeId::STRING], TypeId::BOOL);
+        self.register_extern_function("json_keys", vec![TypeId::ANY], TypeId::ANY);
+        self.register_extern_function("json_values", vec![TypeId::ANY], TypeId::ANY);
+
+        // Crypto functions
+        self.register_extern_function("base64_encode", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("base64_decode", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("base64_encode_url", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("base64_decode_url", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("hex_encode", vec![TypeId::STRING], TypeId::STRING);
+        self.register_extern_function("hex_decode", vec![TypeId::STRING], TypeId::STRING);
 
         // Built-in generic enums (Option, Result)
         self.register_builtin_enums();
