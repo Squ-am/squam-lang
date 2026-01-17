@@ -1092,7 +1092,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "squam"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ariadne",
  "clap",
@@ -1109,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "squam-compiler"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "squam-lexer",
  "squam-parser",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "squam-embed"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "squam-compiler",
  "squam-lexer",
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "squam-lexer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "logos",
  "thiserror 2.0.17",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "squam-parser"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "squam-lexer",
  "thiserror 2.0.17",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "squam-stdlib"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "lazy_static",
@@ -1162,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "squam-types"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rustc-hash",
  "squam-lexer",
@@ -1172,7 +1172,7 @@ dependencies = [
 
 [[package]]
 name = "squam-vm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "squam-compiler",
  "squam-parser",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "squam-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "console_error_panic_hook",
  "getrandom",
