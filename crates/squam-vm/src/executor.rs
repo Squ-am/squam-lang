@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::rc::Rc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use crate::value::{Closure, FutureState, Value};
 
@@ -38,7 +38,7 @@ pub struct Task {
 /// A timer entry in the timer heap.
 #[derive(Clone, Eq, PartialEq)]
 struct TimerEntry {
-    deadline_ms: u128,
+    deadline: Instant,
     task_id: TaskId,
     timer_id: TimerId,
 }
@@ -46,7 +46,7 @@ struct TimerEntry {
 impl Ord for TimerEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Reverse ordering for min-heap (earliest deadline first)
-        other.deadline_ms.cmp(&self.deadline_ms)
+        other.deadline.cmp(&self.deadline)
             .then_with(|| other.timer_id.cmp(&self.timer_id))
     }
 }
@@ -123,12 +123,12 @@ impl Executor {
     }
 
     /// Register a timer that will wake the given task at the deadline.
-    pub fn register_timer(&mut self, task_id: TaskId, deadline_ms: u128) -> TimerId {
+    pub fn register_timer(&mut self, task_id: TaskId, deadline: Instant) -> TimerId {
         let timer_id = self.next_timer_id;
         self.next_timer_id += 1;
 
         self.timers.push(TimerEntry {
-            deadline_ms,
+            deadline,
             task_id,
             timer_id,
         });
@@ -150,13 +150,10 @@ impl Executor {
 
     /// Process any timers that have expired and wake their tasks.
     pub fn process_timers(&mut self) {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
+        let now = Instant::now();
 
         while let Some(entry) = self.timers.peek() {
-            if entry.deadline_ms <= now_ms {
+            if entry.deadline <= now {
                 let entry = self.timers.pop().unwrap();
                 // Mark the timer future as ready
                 if let Some(task) = self.tasks.get_mut(&entry.task_id) {
@@ -176,8 +173,8 @@ impl Executor {
     }
 
     /// Get the next deadline (for sleeping until next timer).
-    pub fn next_deadline(&self) -> Option<u128> {
-        self.timers.peek().map(|e| e.deadline_ms)
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.timers.peek().map(|e| e.deadline)
     }
 
     /// Check if there are any tasks (ready or waiting).

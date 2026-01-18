@@ -94,18 +94,15 @@ pub fn register(vm: &mut VM) {
 
     // async_sleep(ms: int) -> Future<()>
     // Returns a future that resolves after the specified milliseconds.
-    // Note: Currently uses blocking sleep - not true cooperative async.
+    // Uses monotonic time (Instant) for reliable timing regardless of system clock changes.
     vm.define_native("async_sleep", 1, |args| match &args[0] {
         Value::Int(ms) => {
             if *ms < 0 {
                 return Err("async_sleep: milliseconds must be non-negative".to_string());
             }
-            let deadline_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() + (*ms as u128))
-                .unwrap_or(0);
+            let deadline = Instant::now() + Duration::from_millis(*ms as u64);
             Ok(Value::Future(Rc::new(RefCell::new(FutureState::Timer {
-                deadline_ms,
+                deadline,
             }))))
         }
         _ => Err("async_sleep: expected int (milliseconds)".to_string()),
@@ -113,29 +110,26 @@ pub fn register(vm: &mut VM) {
 
     // async_sleep_secs(secs: float) -> Future<()>
     // Returns a future that resolves after the specified seconds.
-    // Note: Currently uses blocking sleep - not true cooperative async.
+    // Uses monotonic time (Instant) for reliable timing regardless of system clock changes.
     vm.define_native("async_sleep_secs", 1, |args| {
-        let ms = match &args[0] {
+        let duration = match &args[0] {
             Value::Float(secs) => {
                 if *secs < 0.0 {
                     return Err("async_sleep_secs: seconds must be non-negative".to_string());
                 }
-                (*secs * 1000.0) as u128
+                Duration::from_secs_f64(*secs)
             }
             Value::Int(secs) => {
                 if *secs < 0 {
                     return Err("async_sleep_secs: seconds must be non-negative".to_string());
                 }
-                (*secs as u128) * 1000
+                Duration::from_secs(*secs as u64)
             }
             _ => return Err("async_sleep_secs: expected number".to_string()),
         };
-        let deadline_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() + ms)
-            .unwrap_or(0);
+        let deadline = Instant::now() + duration;
         Ok(Value::Future(Rc::new(RefCell::new(FutureState::Timer {
-            deadline_ms,
+            deadline,
         }))))
     });
 

@@ -1852,6 +1852,22 @@ impl Compiler {
             }
 
             ExprKind::Binary { op, left, right } => {
+                // Check for compile-time division by zero
+                if matches!(op, BinaryOp::Div | BinaryOp::Rem) {
+                    if let ExprKind::Literal(Literal::Int(0)) = &right.kind {
+                        return Err(CompileError::Custom(
+                            "division by zero: the divisor is a constant zero".to_string(),
+                        ));
+                    }
+                    if let ExprKind::Literal(Literal::Float(f)) = &right.kind {
+                        if *f == 0.0 {
+                            return Err(CompileError::Custom(
+                                "division by zero: the divisor is a constant zero".to_string(),
+                            ));
+                        }
+                    }
+                }
+
                 // Short-circuit for && and ||
                 match op {
                     BinaryOp::And => {

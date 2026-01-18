@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+use std::time::Instant;
 
 use squam_compiler::FunctionProto;
 
@@ -57,8 +58,8 @@ pub enum FutureState {
     },
     /// Timer future - will complete after deadline
     Timer {
-        /// When this future should complete (milliseconds since UNIX epoch)
-        deadline_ms: u128,
+        /// When this future should complete (monotonic time)
+        deadline: Instant,
     },
     /// JoinHandle - awaits completion of a spawned task
     JoinHandle {
@@ -361,8 +362,9 @@ impl fmt::Debug for Value {
                 let state = state.borrow();
                 match &*state {
                     FutureState::Pending { .. } => write!(f, "<Future pending>"),
-                    FutureState::Timer { deadline_ms } => {
-                        write!(f, "<Future timer: {}ms>", deadline_ms)
+                    FutureState::Timer { deadline } => {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        write!(f, "<Future timer: {}ms remaining>", remaining.as_millis())
                     }
                     FutureState::JoinHandle { task_id } => {
                         write!(f, "<Future join: task {}>", task_id)
@@ -432,8 +434,9 @@ impl fmt::Display for Value {
                 let state = state.borrow();
                 match &*state {
                     FutureState::Pending { .. } => write!(f, "<Future pending>"),
-                    FutureState::Timer { deadline_ms } => {
-                        write!(f, "<Future timer: {}ms>", deadline_ms)
+                    FutureState::Timer { deadline } => {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        write!(f, "<Future timer: {}ms remaining>", remaining.as_millis())
                     }
                     FutureState::JoinHandle { task_id } => {
                         write!(f, "<Future join: task {}>", task_id)

@@ -188,7 +188,7 @@ impl VM {
 
     /// Run the event loop until a specific task completes.
     pub fn block_on_task(&mut self, task_id: TaskId) -> Result<Value, RuntimeError> {
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use std::time::{Duration, Instant};
 
         loop {
             // Process any expired timers
@@ -224,13 +224,10 @@ impl VM {
 
             // Sleep until next timer or a short poll interval
             if let Some(deadline) = self.executor.next_deadline() {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0);
+                let now = Instant::now();
                 if deadline > now {
-                    let sleep_ms = (deadline - now).min(10) as u64;
-                    std::thread::sleep(Duration::from_millis(sleep_ms));
+                    let sleep_duration = (deadline - now).min(Duration::from_millis(10));
+                    std::thread::sleep(sleep_duration);
                 }
             } else {
                 // No timers, short sleep
@@ -582,7 +579,10 @@ impl VM {
     #[inline]
     fn push(&mut self, value: Value) -> Result<(), RuntimeError> {
         if self.stack.len() >= self.max_stack_size {
-            return Err(RuntimeError::Custom("stack overflow".to_string()));
+            return Err(RuntimeError::Custom(format!(
+                "stack overflow: exceeded maximum stack size of {} values (consider reducing recursion depth or local variable usage)",
+                self.max_stack_size
+            )));
         }
         self.stack.push(value);
         Ok(())
@@ -712,7 +712,10 @@ impl VM {
         }
 
         if self.frames.len() >= self.max_call_depth {
-            return Err(RuntimeError::Custom("call stack overflow".to_string()));
+            return Err(RuntimeError::Custom(format!(
+                "call stack overflow: exceeded maximum call depth of {} frames (likely infinite recursion or deeply nested function calls)",
+                self.max_call_depth
+            )));
         }
 
         let stack_base = self.stack.len() - max_arity as usize;
@@ -2245,7 +2248,7 @@ impl VM {
                                         });
                                     }
                                 }
-                                FutureState::Timer { deadline_ms: _ } => {
+                                FutureState::Timer { deadline: _ } => {
                                     // Timer future - check if we're in async context
                                     if let Some(task_id) = self.executor.current_task_id() {
                                         // In async context - yield and wait for timer
@@ -2267,28 +2270,24 @@ impl VM {
                                         );
 
                                         // Register the timer
-                                        if let FutureState::Timer { deadline_ms } =
+                                        if let FutureState::Timer { deadline } =
                                             &*future_state.borrow()
                                         {
-                                            self.executor.register_timer(task_id, *deadline_ms);
+                                            self.executor.register_timer(task_id, *deadline);
                                         }
 
                                         // Yield - return a special error that tells caller to yield
                                         return Err(RuntimeError::Custom("__task_yield__".to_string()));
                                     } else {
                                         // Not in async context - busy-wait (not ideal but works)
-                                        use std::time::{SystemTime, UNIX_EPOCH};
+                                        use std::time::Instant;
                                         let state_ref = future_state.borrow();
-                                        if let FutureState::Timer { deadline_ms } = &*state_ref {
-                                            let deadline = *deadline_ms;
+                                        if let FutureState::Timer { deadline } = &*state_ref {
+                                            let timer_deadline = *deadline;
                                             drop(state_ref);
 
                                             loop {
-                                                let now = SystemTime::now()
-                                                    .duration_since(UNIX_EPOCH)
-                                                    .map(|d| d.as_millis())
-                                                    .unwrap_or(0);
-                                                if now >= deadline {
+                                                if Instant::now() >= timer_deadline {
                                                     break;
                                                 }
                                                 std::thread::sleep(std::time::Duration::from_millis(
