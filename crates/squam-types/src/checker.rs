@@ -168,6 +168,10 @@ pub struct TypeChecker {
     pending_instantiations: Vec<PendingInstantiation>,
     /// Trait bounds for generic type variables (maps GenericVar to trait names)
     generic_bounds: FxHashMap<GenericVar, Vec<String>>,
+    /// Current module path during collection (e.g., ["math", "advanced"])
+    current_module_path: Vec<String>,
+    /// Module imports: short name -> qualified path (e.g., "add" -> "math::add")
+    module_imports: FxHashMap<String, String>,
 }
 
 /// A generic instantiation with inferred type args that needs to be finalized.
@@ -199,6 +203,8 @@ impl TypeChecker {
             annotations: TypeAnnotations::new(),
             pending_instantiations: Vec::new(),
             generic_bounds: FxHashMap::default(),
+            current_module_path: Vec::new(),
+            module_imports: FxHashMap::default(),
         };
 
         // Register built-in types
@@ -1302,8 +1308,18 @@ impl TypeChecker {
 
                 self.types.pop_scope();
 
+                // Build qualified name if inside a module
+                let name: std::sync::Arc<str> = if self.current_module_path.is_empty() {
+                    func.name.name.clone()
+                } else {
+                    let mut qualified = self.current_module_path.join("::");
+                    qualified.push_str("::");
+                    qualified.push_str(&func.name.name);
+                    qualified.into()
+                };
+
                 let sig = FunctionSig {
-                    name: func.name.name.clone(),
+                    name,
                     params,
                     return_type,
                     generic_params,
@@ -1451,7 +1467,75 @@ impl TypeChecker {
             Item::Impl(i) => {
                 self.collect_impl(i);
             }
-            _ => {}
+            Item::Mod(m) => {
+                self.collect_mod(m);
+            }
+            Item::Use(u) => {
+                self.collect_use(u);
+            }
+            Item::TypeAlias(_) | Item::Const(_) => {
+                // TODO: implement type alias and const collection
+            }
+        }
+    }
+
+    /// Collect a module declaration and all its items with qualified names.
+    fn collect_mod(&mut self, m: &squam_parser::ast::ModDecl) {
+        // Push the module name onto the path
+        self.current_module_path.push(m.name.name.to_string());
+
+        // Collect all items within the module
+        if let Some(items) = &m.items {
+            for item in items {
+                self.collect_item(item);
+            }
+        }
+
+        // Pop the module name from the path
+        self.current_module_path.pop();
+    }
+
+    /// Collect a use declaration and register the imports.
+    fn collect_use(&mut self, u: &squam_parser::ast::UseDecl) {
+        self.collect_use_tree(&u.tree, &[]);
+    }
+
+    /// Recursively collect a use tree.
+    fn collect_use_tree(&mut self, tree: &squam_parser::ast::UseTree, prefix: &[String]) {
+        match tree {
+            squam_parser::ast::UseTree::Path { path, alias } => {
+                // Build full path: prefix + path segments
+                let mut full_path: Vec<String> = prefix.to_vec();
+                for seg in path {
+                    full_path.push(seg.name.to_string());
+                }
+
+                // The imported name is either the alias or the last segment
+                let imported_name = alias
+                    .as_ref()
+                    .map(|a| a.name.to_string())
+                    .unwrap_or_else(|| full_path.last().unwrap().clone());
+
+                // Register import: short name -> qualified path
+                let qualified_path = full_path.join("::");
+                self.module_imports
+                    .insert(imported_name, qualified_path);
+            }
+            squam_parser::ast::UseTree::Glob { path } => {
+                // For glob imports, we'd need to resolve the module and import all public items.
+                // For now, we don't support glob imports in type checking.
+                let _ = path; // Suppress unused warning
+            }
+            squam_parser::ast::UseTree::Nested { path, items } => {
+                // Build prefix for nested items
+                let mut new_prefix: Vec<String> = prefix.to_vec();
+                for seg in path {
+                    new_prefix.push(seg.name.to_string());
+                }
+                for item in items {
+                    self.collect_use_tree(item, &new_prefix);
+                }
+            }
         }
     }
 
@@ -1830,6 +1914,9 @@ impl TypeChecker {
             Item::Const(c) => self.check_const(c),
             Item::Trait(t) => self.check_trait(t),
             Item::Impl(i) => self.check_impl(i),
+            // For structs/enums defined inside function bodies, we need to collect them here
+            // since they weren't collected in the first pass
+            Item::Struct(_) | Item::Enum(_) => self.collect_item(item),
             _ => {}
         }
     }
@@ -2592,14 +2679,28 @@ impl TypeChecker {
                 ..
             } => {
                 let iter_ty = self.check_expr(iterable);
-                let elem_ty = self.ctx.fresh_infer();
+                let resolved_iter_ty = self.resolve(iter_ty);
+
+                // Determine element type from the iterable type
+                let elem_ty = match self.ctx.get(resolved_iter_ty) {
+                    Ty::Array { element, .. } => *element,
+                    Ty::Slice(element) => *element,
+                    Ty::Reference { inner, .. } => {
+                        // Auto-deref for references to arrays/slices
+                        match self.ctx.get(*inner) {
+                            Ty::Array { element, .. } => *element,
+                            Ty::Slice(element) => *element,
+                            _ => self.ctx.fresh_infer(),
+                        }
+                    }
+                    _ => self.ctx.fresh_infer(), // Unknown iterable (including ranges), use inference
+                };
 
                 self.symbols.push_scope(ScopeKind::Loop);
                 self.bind_pattern(pattern, elem_ty, BindingKind::LoopVar);
                 self.check_block(body);
                 self.symbols.pop_scope();
 
-                let _ = iter_ty;
                 self.ctx.unit()
             }
 
@@ -3086,15 +3187,152 @@ impl TypeChecker {
                 return self.ctx.function(sig.params.clone(), sig.return_type);
             }
 
+            // Check for imported name (from `use` statement)
+            if let Some(qualified_name) = self.module_imports.get(name.as_ref()).cloned() {
+                // Look up the qualified function name
+                let qualified_arc: std::sync::Arc<str> = qualified_name.clone().into();
+                if let Some(sig) = self.functions.lookup(&qualified_arc).cloned() {
+                    // Handle generic function instantiation same as above
+                    if !sig.generic_params.is_empty() {
+                        if let Some(args) = &segment.args {
+                            if args.args.len() != sig.generic_params.len() {
+                                self.error(TypeError::TypeArgCountMismatch {
+                                    expected: sig.generic_params.len(),
+                                    found: args.args.len(),
+                                    span,
+                                });
+                                return self.ctx.error();
+                            }
+
+                            let type_arg_names: Vec<String> = args
+                                .args
+                                .iter()
+                                .filter_map(|arg| match arg {
+                                    GenericArg::Type(t) => Some(self.type_name_from_ast(t)),
+                                    GenericArg::Const(_) => None,
+                                })
+                                .collect();
+
+                            let type_args: Vec<TypeId> = args
+                                .args
+                                .iter()
+                                .map(|arg| match arg {
+                                    GenericArg::Type(t) => self.resolve_ast_type(t),
+                                    GenericArg::Const(_) => self.ctx.fresh_infer(),
+                                })
+                                .collect();
+
+                            self.verify_trait_bounds(&sig.generic_params, &type_args, span);
+
+                            let substitutions: Vec<(GenericVar, TypeId)> = sig
+                                .generic_params
+                                .iter()
+                                .zip(type_args.iter())
+                                .map(|(gp, &arg)| (gp.var, arg))
+                                .collect();
+
+                            let params: Vec<TypeId> = sig
+                                .params
+                                .iter()
+                                .map(|&p| self.ctx.substitute(p, &substitutions))
+                                .collect();
+                            let return_type = self.ctx.substitute(sig.return_type, &substitutions);
+
+                            self.annotations.record_instantiation(
+                                qualified_name,
+                                InstantiationKind::Function,
+                                type_arg_names,
+                                span.start,
+                            );
+
+                            return self.ctx.function(params, return_type);
+                        } else {
+                            let infer_args: Vec<TypeId> = sig
+                                .generic_params
+                                .iter()
+                                .map(|_| self.ctx.fresh_infer())
+                                .collect();
+
+                            self.pending_instantiations.push(PendingInstantiation {
+                                name: qualified_name,
+                                kind: InstantiationKind::Function,
+                                infer_args: infer_args.clone(),
+                                span: span.start,
+                            });
+
+                            let substitutions: Vec<(GenericVar, TypeId)> = sig
+                                .generic_params
+                                .iter()
+                                .zip(infer_args.iter())
+                                .map(|(gp, &arg)| (gp.var, arg))
+                                .collect();
+
+                            let params: Vec<TypeId> = sig
+                                .params
+                                .iter()
+                                .map(|&p| self.ctx.substitute(p, &substitutions))
+                                .collect();
+                            let return_type = self.ctx.substitute(sig.return_type, &substitutions);
+
+                            return self.ctx.function(params, return_type);
+                        }
+                    }
+                    return self.ctx.function(sig.params.clone(), sig.return_type);
+                }
+            }
+
             self.error(TypeError::UndefinedVariable {
                 name: name.to_string(),
                 span,
             });
             self.ctx.error()
         } else if path.segments.len() == 2 {
-            // Two-segment paths (e.g., Counter::new)
-            let type_name = &path.segments[0].ident.name;
-            let method_name = &path.segments[1].ident.name;
+            // Two-segment paths (e.g., Counter::new or math::add)
+            let first_segment = &path.segments[0].ident.name;
+            let second_segment = &path.segments[1].ident.name;
+
+            // First, try as a module function (e.g., math::add)
+            let qualified_fn_name: std::sync::Arc<str> =
+                format!("{}::{}", first_segment, second_segment).into();
+            if let Some(sig) = self.functions.lookup(&qualified_fn_name).cloned() {
+                // Handle generic function instantiation
+                if !sig.generic_params.is_empty() {
+                    // Similar logic to single-segment generic function handling
+                    let infer_args: Vec<TypeId> = sig
+                        .generic_params
+                        .iter()
+                        .map(|_| self.ctx.fresh_infer())
+                        .collect();
+
+                    self.pending_instantiations.push(PendingInstantiation {
+                        name: qualified_fn_name.to_string(),
+                        kind: InstantiationKind::Function,
+                        infer_args: infer_args.clone(),
+                        span: span.start,
+                    });
+
+                    let substitutions: Vec<(GenericVar, TypeId)> = sig
+                        .generic_params
+                        .iter()
+                        .zip(infer_args.iter())
+                        .map(|(gp, &arg)| (gp.var, arg))
+                        .collect();
+
+                    let params: Vec<TypeId> = sig
+                        .params
+                        .iter()
+                        .map(|&p| self.ctx.substitute(p, &substitutions))
+                        .collect();
+                    let return_type = self.ctx.substitute(sig.return_type, &substitutions);
+
+                    return self.ctx.function(params, return_type);
+                }
+                return self.ctx.function(sig.params.clone(), sig.return_type);
+            }
+
+            // Then try as Type::method (e.g., Counter::new)
+            let type_name = first_segment;
+            let method_name = second_segment;
 
             // Look up the type
             if let Some(type_def) = self.types.lookup(type_name) {
@@ -3257,8 +3495,55 @@ impl TypeChecker {
                 self.ctx.error()
             }
         } else {
-            // More than 2 segments - not yet supported
-            self.ctx.fresh_infer()
+            // More than 2 segments - try as nested module function path (e.g., math::advanced::square)
+            let qualified_fn_name: std::sync::Arc<str> = path
+                .segments
+                .iter()
+                .map(|s| s.ident.name.as_ref())
+                .collect::<Vec<_>>()
+                .join("::")
+                .into();
+
+            if let Some(sig) = self.functions.lookup(&qualified_fn_name).cloned() {
+                // Handle generic function instantiation
+                if !sig.generic_params.is_empty() {
+                    let infer_args: Vec<TypeId> = sig
+                        .generic_params
+                        .iter()
+                        .map(|_| self.ctx.fresh_infer())
+                        .collect();
+
+                    self.pending_instantiations.push(PendingInstantiation {
+                        name: qualified_fn_name.to_string(),
+                        kind: InstantiationKind::Function,
+                        infer_args: infer_args.clone(),
+                        span: span.start,
+                    });
+
+                    let substitutions: Vec<(GenericVar, TypeId)> = sig
+                        .generic_params
+                        .iter()
+                        .zip(infer_args.iter())
+                        .map(|(gp, &arg)| (gp.var, arg))
+                        .collect();
+
+                    let params: Vec<TypeId> = sig
+                        .params
+                        .iter()
+                        .map(|&p| self.ctx.substitute(p, &substitutions))
+                        .collect();
+                    let return_type = self.ctx.substitute(sig.return_type, &substitutions);
+
+                    return self.ctx.function(params, return_type);
+                }
+                return self.ctx.function(sig.params.clone(), sig.return_type);
+            }
+
+            self.error(TypeError::UndefinedFunction {
+                name: qualified_fn_name.to_string(),
+                span,
+            });
+            self.ctx.error()
         }
     }
 
