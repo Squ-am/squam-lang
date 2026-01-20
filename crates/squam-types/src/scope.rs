@@ -417,14 +417,14 @@ impl TraitNamespace {
     }
 
     /// Look up a method by name for a given type.
-    /// Returns the method signature and the impl's self_ty if found.
-    pub fn lookup_method(&self, ty: TypeId, method_name: &str) -> Option<(&ImplMethodSig, TypeId)> {
+    /// Returns the method signature and the impl definition if found.
+    pub fn lookup_method(&self, ty: TypeId, method_name: &str) -> Option<(&ImplMethodSig, &ImplDef)> {
         // First check inherent impls (no trait)
         for impl_def in &self.impls {
             if impl_def.self_ty == ty && impl_def.trait_name.is_none() {
                 for method in &impl_def.methods {
                     if method.name.as_ref() == method_name {
-                        return Some((method, impl_def.self_ty));
+                        return Some((method, impl_def));
                     }
                 }
             }
@@ -434,7 +434,7 @@ impl TraitNamespace {
             if impl_def.self_ty == ty && impl_def.trait_name.is_some() {
                 for method in &impl_def.methods {
                     if method.name.as_ref() == method_name {
-                        return Some((method, impl_def.self_ty));
+                        return Some((method, impl_def));
                     }
                 }
             }

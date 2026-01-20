@@ -36,6 +36,8 @@ pub struct Parser<'src> {
     source: &'src str,
     current: Token,
     errors: Vec<ParseError>,
+    /// Pending `>` token from splitting `>>` (for nested generics like `Option<Option<i64>>`)
+    pending_gt: Option<Span>,
 }
 
 impl<'src> Parser<'src> {
@@ -48,6 +50,7 @@ impl<'src> Parser<'src> {
             source,
             current,
             errors: Vec::new(),
+            pending_gt: None,
         }
     }
 
@@ -107,6 +110,57 @@ impl<'src> Parser<'src> {
         } else {
             let err = ParseError::UnexpectedToken {
                 expected: kind.name().to_string(),
+                found: self.current.kind.name().to_string(),
+                span: self.current.span,
+            };
+            self.errors.push(err.clone());
+            Err(err)
+        }
+    }
+
+    /// Check if we can consume `>` (either from pending_gt, actual Gt, or by splitting Shr)
+    fn check_gt(&self) -> bool {
+        self.pending_gt.is_some()
+            || self.current.kind == TokenKind::Gt
+            || self.current.kind == TokenKind::Shr
+    }
+
+    /// Consume a `>` token, handling the `>>` split case for nested generics.
+    /// Returns the span of the consumed `>`.
+    fn consume_gt(&mut self) -> Option<Span> {
+        // First check for pending > from a previous >> split
+        if let Some(span) = self.pending_gt.take() {
+            return Some(span);
+        }
+
+        if self.current.kind == TokenKind::Gt {
+            let span = self.current.span;
+            self.advance();
+            return Some(span);
+        }
+
+        // Handle >> by splitting it into two > tokens
+        if self.current.kind == TokenKind::Shr {
+            let span = self.current.span;
+            // Create a span for the second > (just the second character)
+            let second_gt_span = Span::new((span.start + 1) as usize, span.end as usize, span.file_id);
+            self.pending_gt = Some(second_gt_span);
+            // Advance past the >> token
+            self.advance();
+            // Return span for the first > (just the first character)
+            return Some(Span::new(span.start as usize, (span.start + 1) as usize, span.file_id));
+        }
+
+        None
+    }
+
+    /// Expect a `>` token, handling nested generics like `Option<Option<i64>>`.
+    fn expect_gt(&mut self) -> Result<Token, ParseError> {
+        if let Some(span) = self.consume_gt() {
+            Ok(Token::new(TokenKind::Gt, span))
+        } else {
+            let err = ParseError::UnexpectedToken {
+                expected: ">".to_string(),
                 found: self.current.kind.name().to_string(),
                 span: self.current.span,
             };
@@ -1044,7 +1098,7 @@ impl<'src> Parser<'src> {
         self.advance();
 
         let mut params = Vec::new();
-        while !self.check(TokenKind::Gt) && !self.check(TokenKind::Eof) {
+        while !self.check_gt() && !self.check(TokenKind::Eof) {
             if self.check(TokenKind::Const) {
                 params.push(GenericParam::Const(self.parse_const_param()?));
             } else {
@@ -1056,7 +1110,7 @@ impl<'src> Parser<'src> {
             }
         }
 
-        self.expect(TokenKind::Gt)?;
+        self.expect_gt()?;
 
         let where_clause = if self.check(TokenKind::Where) {
             Some(self.parse_where_clause()?)
@@ -1316,7 +1370,7 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::Lt)?;
 
         let mut args = Vec::new();
-        while !self.check(TokenKind::Gt) && !self.check(TokenKind::Eof) {
+        while !self.check_gt() && !self.check(TokenKind::Eof) {
             // Try to parse as type, fall back to const expr
             args.push(GenericArg::Type(self.parse_type()?));
 
@@ -1325,8 +1379,8 @@ impl<'src> Parser<'src> {
             }
         }
 
-        self.expect(TokenKind::Gt)?;
-        let span = start.merge(self.current.span);
+        let end_token = self.expect_gt()?;
+        let span = start.merge(end_token.span);
 
         Ok(GenericArgs { args, span })
     }
@@ -1593,10 +1647,10 @@ impl<'src> Parser<'src> {
                 })
             }
 
-            // Unary operators
+            // Unary operators - propagate no_struct restriction
             TokenKind::Minus => {
                 self.advance();
-                let operand = self.parse_expr_precedence(Precedence::Unary)?;
+                let operand = self.parse_expr_with_restrictions(Precedence::Unary, no_struct)?;
                 let span = start.merge(operand.span);
                 Ok(Expr {
                     kind: ExprKind::Unary {
@@ -1608,7 +1662,7 @@ impl<'src> Parser<'src> {
             }
             TokenKind::Bang => {
                 self.advance();
-                let operand = self.parse_expr_precedence(Precedence::Unary)?;
+                let operand = self.parse_expr_with_restrictions(Precedence::Unary, no_struct)?;
                 let span = start.merge(operand.span);
                 Ok(Expr {
                     kind: ExprKind::Unary {
@@ -1620,7 +1674,7 @@ impl<'src> Parser<'src> {
             }
             TokenKind::Tilde => {
                 self.advance();
-                let operand = self.parse_expr_precedence(Precedence::Unary)?;
+                let operand = self.parse_expr_with_restrictions(Precedence::Unary, no_struct)?;
                 let span = start.merge(operand.span);
                 Ok(Expr {
                     kind: ExprKind::Unary {
@@ -1633,7 +1687,7 @@ impl<'src> Parser<'src> {
             TokenKind::Star => {
                 // Dereference
                 self.advance();
-                let operand = self.parse_expr_precedence(Precedence::Unary)?;
+                let operand = self.parse_expr_with_restrictions(Precedence::Unary, no_struct)?;
                 let span = start.merge(operand.span);
                 Ok(Expr {
                     kind: ExprKind::Dereference {
@@ -1646,7 +1700,7 @@ impl<'src> Parser<'src> {
                 // Reference
                 self.advance();
                 let mutable = self.consume(TokenKind::Mut);
-                let operand = self.parse_expr_precedence(Precedence::Unary)?;
+                let operand = self.parse_expr_with_restrictions(Precedence::Unary, no_struct)?;
                 let span = start.merge(operand.span);
                 Ok(Expr {
                     kind: ExprKind::Reference {
@@ -1943,7 +1997,11 @@ impl<'src> Parser<'src> {
                 let inclusive = op_token == TokenKind::DotDotEq;
                 self.advance();
                 let end = if self.current.kind.can_start_expr() {
-                    Some(Box::new(self.parse_expr_precedence(Precedence::Range)?))
+                    // Use no_struct=true to prevent `0..n { }` being parsed as `0..(n {})` struct literal
+                    // This is important for for-loops like `for i in 0..n { body }`
+                    Some(Box::new(
+                        self.parse_expr_with_restrictions(Precedence::Range, true)?,
+                    ))
                 } else {
                     None
                 };
@@ -2019,6 +2077,43 @@ impl<'src> Parser<'src> {
                         },
                         span,
                     });
+                }
+
+                // Handle chained tuple access where lexer grouped "0.0" as a float
+                // e.g., in `nested.0.0`, after first `.0`, lexer sees `0.0` as FloatLiteral
+                if self.check(TokenKind::FloatLiteral) {
+                    let token = self.advance();
+                    let s = self.slice(token.span);
+                    // Split the float "X.Y" into two tuple field accesses
+                    if let Some(dot_pos) = s.find('.') {
+                        let first_idx = &s[..dot_pos];
+                        let second_idx = &s[dot_pos + 1..];
+                        // Validate both parts are valid integers
+                        if first_idx.chars().all(|c| c.is_ascii_digit())
+                            && second_idx.chars().all(|c| c.is_ascii_digit())
+                        {
+                            // Create first field access
+                            let first_field = Identifier::new(first_idx, token.span);
+                            let first_span = start.merge(token.span);
+                            let first_access = Expr {
+                                kind: ExprKind::Field {
+                                    base: Box::new(left),
+                                    field: first_field,
+                                },
+                                span: first_span,
+                            };
+                            // Create second field access
+                            let second_field = Identifier::new(second_idx, token.span);
+                            let second_span = first_span.merge(token.span);
+                            return Ok(Expr {
+                                kind: ExprKind::Field {
+                                    base: Box::new(first_access),
+                                    field: second_field,
+                                },
+                                span: second_span,
+                            });
+                        }
+                    }
                 }
 
                 // Check for await: expr.await
@@ -2495,11 +2590,44 @@ impl<'src> Parser<'src> {
                 })
             }
 
-            // Literal patterns
+            // Literal patterns (may be range patterns like 0..10 or 0..=10)
             TokenKind::IntLiteral => {
                 let token = self.advance();
                 let s = self.slice(token.span);
                 let value = parse_int(s).unwrap_or(0);
+
+                // Check if this is a range pattern
+                if self.check(TokenKind::DotDot) || self.check(TokenKind::DotDotEq) {
+                    let inclusive = self.current.kind == TokenKind::DotDotEq;
+                    self.advance();
+
+                    // Parse end of range if present
+                    let end = if self.check(TokenKind::IntLiteral) {
+                        let end_token = self.advance();
+                        let end_s = self.slice(end_token.span);
+                        let end_value = parse_int(end_s).unwrap_or(0);
+                        Some(Box::new(Expr {
+                            kind: ExprKind::Literal(Literal::Int(end_value)),
+                            span: end_token.span,
+                        }))
+                    } else {
+                        None
+                    };
+
+                    let span = start.merge(self.current.span);
+                    return Ok(Pattern {
+                        kind: PatternKind::Range {
+                            start: Some(Box::new(Expr {
+                                kind: ExprKind::Literal(Literal::Int(value)),
+                                span: token.span,
+                            })),
+                            end,
+                            inclusive,
+                        },
+                        span,
+                    });
+                }
+
                 Ok(Pattern {
                     kind: PatternKind::Literal(Literal::Int(value)),
                     span: token.span,

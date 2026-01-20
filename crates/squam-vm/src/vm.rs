@@ -1221,7 +1221,11 @@ impl VM {
                 }
                 OpCode::Not => {
                     let a = self.pop()?;
-                    self.push(Value::Bool(!a.is_truthy()))?;
+                    match a {
+                        Value::Bool(b) => self.push(Value::Bool(!b))?,
+                        Value::Int(n) => self.push(Value::Int(!n))?,
+                        _ => self.push(Value::Bool(!a.is_truthy()))?,
+                    }
                 }
 
                 // CONTROL FLOW
@@ -1854,6 +1858,11 @@ impl VM {
                 OpCode::Index => {
                     let index = self.pop()?;
                     let target = self.pop()?;
+                    // Auto-deref references for indexing
+                    let target = match &target {
+                        Value::LocalRef(slot, _) => self.stack[*slot].clone(),
+                        _ => target,
+                    };
                     let result = match (&target, &index) {
                         (Value::Array(arr), Value::Int(i)) => {
                             let arr = arr.borrow();
@@ -1886,9 +1895,15 @@ impl VM {
                     self.push(result)?;
                 }
                 OpCode::IndexSet => {
-                    let value = self.pop()?;
+                    // Compiler produces: [value, target, index] with index on top
                     let index = self.pop()?;
                     let target = self.pop()?;
+                    let value = self.pop()?;
+                    // Auto-deref references for index assignment
+                    let target = match &target {
+                        Value::LocalRef(slot, _) => self.stack[*slot].clone(),
+                        _ => target,
+                    };
                     match (&target, &index) {
                         (Value::Array(arr), Value::Int(i)) => {
                             let mut arr = arr.borrow_mut();

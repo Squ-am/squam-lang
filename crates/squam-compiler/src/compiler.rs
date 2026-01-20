@@ -87,6 +87,8 @@ struct TraitMethodInfo {
 struct TraitTypeInfo {
     /// Required methods
     methods: Vec<TraitMethodInfo>,
+    /// The trait definition AST (for compiling default methods)
+    def: TraitDef,
 }
 
 /// The kind of generic definition.
@@ -161,6 +163,8 @@ pub struct Compiler {
     current_substitution: HashMap<String, String>,
     /// Counter for generating unique temporary variable names
     temp_counter: usize,
+    /// Generic impl blocks awaiting monomorphization, keyed by base type name
+    generic_impl_blocks: HashMap<String, Vec<ImplBlock>>,
 }
 
 impl Compiler {
@@ -180,6 +184,7 @@ impl Compiler {
             compiled_instantiations: HashMap::new(),
             current_substitution: HashMap::new(),
             temp_counter: 0,
+            generic_impl_blocks: HashMap::new(),
         };
         compiler.register_builtin_enums();
         compiler
@@ -201,6 +206,7 @@ impl Compiler {
             compiled_instantiations: HashMap::new(),
             current_substitution: HashMap::new(),
             temp_counter: 0,
+            generic_impl_blocks: HashMap::new(),
         };
         compiler.register_builtin_enums();
         compiler
@@ -377,6 +383,21 @@ impl Compiler {
         current
     }
 
+    /// Map a compiler type name to the runtime type name.
+    /// This handles primitives which have different names in source code vs runtime.
+    fn runtime_type_name(type_name: &str) -> &str {
+        match type_name {
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize" => {
+                "int"
+            }
+            "f32" | "f64" => "float",
+            "str" | "String" => "string",
+            "()" => "()",
+            "bool" => "bool",
+            other => other,
+        }
+    }
+
     // === Monomorphization helpers ===
 
     /// Generate a mangled name for a generic instantiation.
@@ -452,6 +473,27 @@ impl Compiler {
                 type_params,
             },
         );
+    }
+
+    /// Store a generic impl block for later monomorphization.
+    fn store_generic_impl_block(&mut self, impl_block: &ImplBlock) {
+        // Get the base type name from self_ty
+        let type_name = match &impl_block.self_ty.kind {
+            TypeKind::Path(path) => {
+                if let Some(seg) = path.segments.first() {
+                    seg.ident.name.to_string()
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+
+        // Store the impl block keyed by the base type name
+        self.generic_impl_blocks
+            .entry(type_name)
+            .or_insert_with(Vec::new)
+            .push(impl_block.clone());
     }
 
     /// Get the current compiler state.
@@ -802,7 +844,14 @@ impl Compiler {
                 }
             }
             Item::Const(c) => self.compile_const_def(c),
-            Item::Impl(impl_block) => self.compile_impl_block(impl_block),
+            Item::Impl(impl_block) => {
+                if Self::has_generics(&impl_block.generics) {
+                    self.store_generic_impl_block(impl_block);
+                    Ok(())
+                } else {
+                    self.compile_impl_block(impl_block)
+                }
+            }
             Item::Trait(trait_def) => self.compile_trait_def(trait_def),
             Item::Mod(mod_decl) => self.compile_mod_decl(mod_decl),
             Item::Use(use_decl) => self.compile_use_decl(use_decl),
@@ -901,6 +950,14 @@ impl Compiler {
         let mangled_name = self.mangle_name(&s.name.name, type_args);
         self.compile_struct_def_with_name(s, &mangled_name)?;
 
+        // Also monomorphize associated impl blocks
+        let base_type_name = s.name.name.to_string();
+        if let Some(impl_blocks) = self.generic_impl_blocks.get(&base_type_name).cloned() {
+            for impl_block in impl_blocks {
+                self.monomorphize_impl_block(&impl_block, &mangled_name)?;
+            }
+        }
+
         // Record instantiation
         let key = self.instantiation_key(&s.name.name, type_args);
         self.compiled_instantiations.insert(key, mangled_name);
@@ -933,6 +990,21 @@ impl Compiler {
         self.compiled_instantiations.insert(key, mangled_name);
 
         self.current_substitution.clear();
+        Ok(())
+    }
+
+    /// Monomorphize a generic impl block for a specific type instantiation.
+    fn monomorphize_impl_block(
+        &mut self,
+        impl_block: &ImplBlock,
+        mangled_type_name: &str,
+    ) -> Result<(), CompileError> {
+        // Compile each method with the mangled type name
+        for item in &impl_block.items {
+            if let ImplItem::Function(func) = item {
+                self.compile_method(func, mangled_type_name)?;
+            }
+        }
         Ok(())
     }
 
@@ -1156,13 +1228,19 @@ impl Compiler {
             }
         }
 
-        self.trait_types.insert(name, TraitTypeInfo { methods });
+        self.trait_types.insert(
+            name,
+            TraitTypeInfo {
+                methods,
+                def: trait_def.clone(),
+            },
+        );
         Ok(())
     }
 
     fn compile_impl_block(&mut self, impl_block: &ImplBlock) -> Result<(), CompileError> {
         // Get the type name from self_ty
-        let type_name = match &impl_block.self_ty.kind {
+        let source_type_name = match &impl_block.self_ty.kind {
             TypeKind::Path(path) => {
                 if let Some(seg) = path.segments.first() {
                     seg.ident.name.to_string()
@@ -1178,6 +1256,9 @@ impl Compiler {
                 ))
             }
         };
+
+        // Map to runtime type name (e.g., "i64" -> "int")
+        let type_name = Self::runtime_type_name(&source_type_name).to_string();
 
         // If this is a trait impl, verify all required methods are present
         if let Some(trait_path) = &impl_block.trait_ {
@@ -1206,6 +1287,18 @@ impl Compiler {
                             "trait {} requires method '{}' but it is not implemented for {}",
                             trait_name, method.name, type_name
                         )));
+                    }
+                }
+
+                // Compile default methods that aren't overridden
+                for item in &trait_info.def.items {
+                    if let TraitItem::Function(func) = item {
+                        if func.default.is_some()
+                            && !implemented_methods.contains(&func.name.name.to_string())
+                        {
+                            // This is a default method that wasn't overridden - compile it
+                            self.compile_default_trait_method(func, &type_name)?;
+                        }
                     }
                 }
             }
@@ -1273,6 +1366,77 @@ impl Compiler {
             chunk: func_state.chunk,
             upvalues: func_state.upvalues,
             defaults,
+        };
+
+        // Store the function as a constant
+        let proto_idx = self.add_constant(Constant::Function(Box::new(proto)))?;
+
+        // Emit closure creation with upvalue info
+        self.emit(OpCode::Closure);
+        self.emit_u16(proto_idx);
+        self.emit_byte(upvalues.len() as u8);
+        for uv in &upvalues {
+            self.emit_byte(if uv.is_local { 1 } else { 0 });
+            self.emit_byte(uv.index);
+        }
+
+        // Register as a method: DefineMethod [type_name_idx: u16, method_name_idx: u16]
+        let type_name_idx = self.add_constant(Constant::String(type_name.to_string()))?;
+        let method_name_idx = self.add_constant(Constant::String(func.name.name.to_string()))?;
+
+        self.emit(OpCode::DefineMethod);
+        self.emit_u16(type_name_idx);
+        self.emit_u16(method_name_idx);
+
+        Ok(())
+    }
+
+    /// Compile a default trait method for an implementing type.
+    fn compile_default_trait_method(
+        &mut self,
+        func: &TraitFunction,
+        type_name: &str,
+    ) -> Result<(), CompileError> {
+        let body = func
+            .default
+            .as_ref()
+            .expect("default method should have a body");
+
+        self.current_line = func.span.start;
+
+        // Calculate min_arity (params without defaults - trait methods don't have defaults)
+        let min_arity = func.params.len() as u8;
+
+        // Compile the function body in a new state
+        self.states.push(CompilerState::new(
+            Some(func.name.name.to_string()),
+            func.params.len() as u8,
+        ));
+
+        self.begin_scope();
+
+        // Bind parameters (including self)
+        for param in &func.params {
+            self.compile_pattern_binding(&param.pattern, true)?;
+        }
+
+        // Compile body
+        self.compile_block(body)?;
+
+        // Implicit return
+        self.emit(OpCode::Return);
+
+        self.end_scope();
+
+        let func_state = self.states.pop().unwrap();
+        let upvalues = func_state.upvalues.clone();
+        let proto = FunctionProto {
+            name: func_state.function_name,
+            arity: func_state.arity,
+            min_arity,
+            chunk: func_state.chunk,
+            upvalues: func_state.upvalues,
+            defaults: Vec::new(), // Trait methods don't have default param values
         };
 
         // Store the function as a constant
@@ -1744,6 +1908,58 @@ impl Compiler {
                     Ok(())
                 }
             }
+            PatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                // Range pattern: check if scrutinee is within range
+                // e.g., 0..=10 means scrutinee >= 0 && scrutinee <= 10
+                let mut has_condition = false;
+
+                // Check start bound: scrutinee >= start
+                if let Some(start_expr) = start {
+                    self.emit(OpCode::Dup); // [scrutinee, scrutinee]
+                    self.compile_expr(start_expr)?; // [scrutinee, scrutinee, start]
+                    self.emit(OpCode::Ge); // [scrutinee, bool]
+                    has_condition = true;
+                }
+
+                // Check end bound: scrutinee <= end (or < if not inclusive)
+                if let Some(end_expr) = end {
+                    if has_condition {
+                        // We have start condition on stack, need to AND with end condition
+                        let skip_end_check = self.emit_jump(OpCode::JumpIfFalse);
+                        // Start condition was true, check end
+                        self.emit(OpCode::Dup); // [scrutinee, scrutinee]
+                        self.compile_expr(end_expr)?; // [scrutinee, scrutinee, end]
+                        if *inclusive {
+                            self.emit(OpCode::Le); // [scrutinee, bool]
+                        } else {
+                            self.emit(OpCode::Lt); // [scrutinee, bool]
+                        }
+                        let done_jump = self.emit_jump(OpCode::Jump);
+                        // Start condition was false
+                        self.patch_jump(skip_end_check)?;
+                        self.emit(OpCode::False);
+                        self.patch_jump(done_jump)?;
+                    } else {
+                        // Only end bound
+                        self.emit(OpCode::Dup); // [scrutinee, scrutinee]
+                        self.compile_expr(end_expr)?; // [scrutinee, scrutinee, end]
+                        if *inclusive {
+                            self.emit(OpCode::Le); // [scrutinee, bool]
+                        } else {
+                            self.emit(OpCode::Lt); // [scrutinee, bool]
+                        }
+                    }
+                } else if !has_condition {
+                    // No bounds at all - always matches
+                    self.emit(OpCode::True);
+                }
+
+                Ok(())
+            }
             _ => {
                 // Default: assume match
                 self.emit(OpCode::True);
@@ -2105,6 +2321,50 @@ impl Compiler {
                             self.emit_u16(method_name_idx);
                             self.emit_byte(args.len() as u8);
                             return Ok(());
+                        }
+
+                        // Handle generic struct static methods
+                        if self.generic_defs.contains_key(&type_name) {
+                            // Get the monomorphized type name from type annotations
+                            let call_site_info = self
+                                .type_annotations
+                                .as_ref()
+                                .and_then(|ann| ann.get_call_site(callee.span.start))
+                                .map(|(_, type_args)| type_args.clone());
+
+                            if let Some(type_args) = call_site_info {
+                                let mangled_type_name = self.mangle_name(&type_name, &type_args);
+
+                                // Monomorphize struct if needed
+                                if !self.struct_types.contains_key(&mangled_type_name) {
+                                    if let Some(def) = self.generic_defs.get(&type_name).cloned() {
+                                        if let GenericDefKind::Struct(s) = &def.kind {
+                                            self.monomorphize_struct(
+                                                &type_name,
+                                                s,
+                                                &def.type_params,
+                                                &type_args,
+                                            )?;
+                                        }
+                                    }
+                                }
+
+                                // Compile arguments
+                                for arg in args {
+                                    self.compile_expr(&arg.value)?;
+                                }
+
+                                // Emit CallStatic with mangled type name
+                                let type_name_idx =
+                                    self.add_constant(Constant::String(mangled_type_name))?;
+                                let method_name_idx =
+                                    self.add_constant(Constant::String(method_name))?;
+                                self.emit(OpCode::CallStatic);
+                                self.emit_u16(type_name_idx);
+                                self.emit_u16(method_name_idx);
+                                self.emit_byte(args.len() as u8);
+                                return Ok(());
+                            }
                         }
                     }
                 }
